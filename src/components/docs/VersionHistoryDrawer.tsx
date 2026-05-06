@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { format } from "date-fns"
 import { History } from "lucide-react"
 import {
@@ -11,8 +10,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { useDb, useDbWatcher } from "@/db"
-import { listVersions } from "@/db/repositories/documents"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
 
 interface VersionHistoryDrawerProps {
   documentId: string
@@ -24,11 +24,11 @@ interface VersionHistoryDrawerProps {
   onOpenChange: (open: boolean) => void
 }
 
-function formatDate(iso: string): string {
+function formatDate(ms: number): string {
   try {
-    return format(new Date(iso), "MMM d, yyyy · HH:mm")
+    return format(new Date(ms), "MMM d, yyyy · HH:mm")
   } catch {
-    return iso
+    return String(ms)
   }
 }
 
@@ -40,14 +40,13 @@ export function VersionHistoryDrawer({
   open,
   onOpenChange,
 }: VersionHistoryDrawerProps) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
-
-  const versions = useMemo(() => {
-    if (!db) return []
-    return listVersions(db, documentId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, documentId, watcher, open])
+  const versions =
+    useQuery(
+      api.documents.listVersions,
+      open && documentId
+        ? { documentId: documentId as Id<"documents"> }
+        : "skip",
+    ) ?? []
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -76,7 +75,7 @@ export function VersionHistoryDrawer({
                     : isCurrent
                 return (
                   <li
-                    key={v.id}
+                    key={v._id}
                     className="rounded-md border bg-background p-3"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -99,11 +98,11 @@ export function VersionHistoryDrawer({
                             variant="outline"
                             className="text-[10px] uppercase tracking-wide text-muted-foreground"
                           >
-                            {v.body_kind}
+                            {v.bodyKind}
                           </Badge>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Published {formatDate(v.published_at)}
+                          Published {formatDate(v.publishedAt)}
                         </div>
                       </div>
                       <Button

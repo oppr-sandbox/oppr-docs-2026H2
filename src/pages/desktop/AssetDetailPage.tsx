@@ -3,14 +3,20 @@ import { Link, useLocation, useRoute } from "wouter"
 import { ArrowLeft, Factory, FileText, Link as LinkIcon, MapPin, Pencil, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useDb, useDbWatcher } from "@/db"
-import { getAsset, listAssetLogs, updateAsset } from "@/db/repositories/assets"
-import { listDocumentsForAsset, updateDocument } from "@/db/repositories/documents"
+import { useMutation, useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import {
+  toLegacyAsset,
+  toLegacyAssetLog,
+  toLegacyDoc,
+} from "@/lib/convex-adapters"
 import {
   DocumentLibraryTable,
   type AssetPreview,
   type DocumentRowAction,
 } from "@/components/docs/DocumentLibraryTable"
+import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
 import type { AssetLog, Doc } from "@/types"
 import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
 import { EditAssetModal } from "@/components/docs/EditAssetModal"
@@ -20,60 +26,39 @@ import { toast } from "sonner"
 export function AssetDetailPage() {
   const [, params] = useRoute<{ id: string }>("/assets/:id")
   const id = params?.id
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
   const [previewOpen, setPreviewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
-  const asset = useMemo(() => {
-    if (!db || !id) return null
-    return getAsset(db, id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, id, watcher])
+  const result = useQuery(
+    api.assets.getWithDocs,
+    id ? { id: id as Id<"assets"> } : "skip",
+  )
+  const previewBundle = useQuery(api.documents.listWithAssetPreviews, {})
+  const updateAssetMut = useMutation(api.assets.update)
+  const archive = useMutation(api.documents.archive)
+  const remove = useMutation(api.documents.remove)
+  const [docToDelete, setDocToDelete] = useState<Doc | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const ready = result !== undefined
 
-  const docs = useMemo(() => {
-    if (!db || !id) return []
-    return listDocumentsForAsset(db, id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, id, watcher])
-
-  const logs = useMemo(() => {
-    if (!db || !id) return []
-    return listAssetLogs(db, id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, id, watcher])
-
-  // Linked assets per document — same shape used by LibraryPage so the
-  // hover popover and the rest of the table behave consistently.
-  const assetsByDoc = useMemo(() => {
-    const map: Record<string, AssetPreview[]> = {}
-    if (!db) return map
-    const stmt = db.prepare(
-      `SELECT da.document_id AS document_id, a.id, a.code, a.name
-         FROM document_assets da
-         JOIN assets a ON a.id = da.asset_id
-        ORDER BY a.code`,
-    )
-    try {
-      while (stmt.step()) {
-        const r = stmt.getAsObject() as {
-          document_id: string
-          id: string
-          code: string
-          name: string
-        }
-        const list = map[r.document_id] ?? []
-        list.push({ id: r.id, code: r.code, name: r.name })
-        map[r.document_id] = list
-      }
-    } finally {
-      stmt.free()
-    }
-    return map
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, watcher])
+  const asset = useMemo(
+    () => (result ? toLegacyAsset(result.asset) : null),
+    [result],
+  )
+  const docs = useMemo(
+    () => (result ? result.documents.map(toLegacyDoc) : []),
+    [result],
+  )
+  const logs = useMemo(
+    () => (result ? result.logs.map(toLegacyAssetLog) : []),
+    [result],
+  )
+  const assetsByDoc = useMemo<Record<string, AssetPreview[]>>(
+    () => previewBundle?.assetsByDoc ?? {},
+    [previewBundle],
+  )
 
   function handleAction(action: DocumentRowAction, doc: Doc) {
     if (action === "open") {
@@ -88,17 +73,45 @@ export function AssetDetailPage() {
       return
     }
     if (action === "duplicate") {
-      toast.info("Duplicate is not wired up in the showcase build.")
+      toast.info("Duplicate isn't wired up yet.")
       return
     }
     if (action === "archive") {
-      if (!db) return
-      try {
-        updateDocument(db, doc.id, { status: "archived" })
-        toast.success(`Archived ${doc.naming_code}`)
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to archive")
-      }
+      archive({ id: doc.id as Id<"documents"> })
+        .then(() => toast.success(`Archived ${doc.naming_code}`))
+        .catch((err) =>
+          toast.error(err instanceof Error ? err.message : "Failed to archive"),
+        )
+      return
+    }
+    if (action === "delete") {
+      setDocToDelete(doc)
+    }
+  }
+
+  async function handleArchiveFromDialog() {
+    if (!docToDelete) return
+    try {
+      await archive({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Archived ${docToDelete.naming_code}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to archive")
+    } finally {
+      setDocToDelete(null)
+    }
+  }
+
+  async function handleDeleteConfirm() {
+    if (!docToDelete) return
+    setDeleting(true)
+    try {
+      await remove({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Deleted ${docToDelete.naming_code}`)
+      setDocToDelete(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete")
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -265,14 +278,18 @@ export function AssetDetailPage() {
         asset={asset}
         open={editOpen}
         onOpenChange={setEditOpen}
-        onSave={(patch) => {
-          if (!db) return
+        onSave={async (patch) => {
           try {
-            updateAsset(db, asset.id, patch)
+            await updateAssetMut({
+              id: asset.id as Id<"assets">,
+              ...patch,
+            })
             toast.success("Asset updated")
             setEditOpen(false)
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Failed to update asset")
+            toast.error(
+              err instanceof Error ? err.message : "Failed to update asset",
+            )
           }
         }}
       />
@@ -280,6 +297,14 @@ export function AssetDetailPage() {
         log={activeLog}
         open={!!activeLog}
         onOpenChange={(o) => !o && setActiveLog(null)}
+      />
+      <DeleteDocumentDialog
+        doc={docToDelete}
+        open={!!docToDelete}
+        onOpenChange={(o) => !o && !deleting && setDocToDelete(null)}
+        onArchive={() => void handleArchiveFromDialog()}
+        onConfirmDelete={() => void handleDeleteConfirm()}
+        busy={deleting}
       />
     </div>
   )

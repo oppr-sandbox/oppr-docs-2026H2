@@ -11,8 +11,9 @@
 // - Validates uniqueness against the live document list and surfaces a
 //   short error message inline.
 
-import { useEffect, useMemo, useRef, useState } from "react"
-import { useDb, useDbWatcher, listDocuments } from "@/db"
+import { useEffect, useMemo, useRef } from "react"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -67,10 +68,7 @@ export function NamingCodeField({
   ignoreId,
   label = "Naming code",
 }: NamingCodeFieldProps) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
-
-  const allDocs = useMemo(() => (db ? listDocuments(db) : []), [db, watcher])
+  const allDocs = useQuery(api.documents.list, {}) ?? []
 
   // Track the last "auto" value we set so we know whether to refresh on type change.
   const lastAutoRef = useRef<string | null>(null)
@@ -79,7 +77,7 @@ export function NamingCodeField({
   // holds our previously-suggested value, push a fresh suggestion.
   useEffect(() => {
     if (disabled) return
-    const codes = allDocs.map((d) => d.naming_code)
+    const codes = allDocs.map((d) => d.namingCode)
     const next = suggestNextCode(type, codes)
     const isEmpty = !value
     const isStillAuto = lastAutoRef.current && value === lastAutoRef.current
@@ -97,14 +95,14 @@ export function NamingCodeField({
     if (!FORMAT_RE.test(value))
       return { ok: false, message: "Format: SITE-DEPT-TYPE-NNNN" }
     const clash = allDocs.find(
-      (d) => d.naming_code === value && d.id !== ignoreId,
+      (d) => d.namingCode === value && d._id !== ignoreId,
     )
     if (clash) return { ok: false, message: "Already used by another document" }
     return { ok: true, message: "" }
   }, [value, allDocs, ignoreId])
 
   function regenerate() {
-    const codes = allDocs.map((d) => d.naming_code)
+    const codes = allDocs.map((d) => d.namingCode)
     const next = suggestNextCode(type, codes)
     lastAutoRef.current = next
     onChange(next)

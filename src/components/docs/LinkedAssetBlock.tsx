@@ -19,7 +19,9 @@ import {
 } from "@tiptap/react"
 import { Hash, MapPin } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useDb, useDbWatcher, listAssets } from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import { toLegacyAsset } from "@/lib/convex-adapters"
 import {
   Dialog,
   DialogContent,
@@ -173,11 +175,10 @@ export function LinkedAssetPicker({
   onOpenChange,
   onSelect,
 }: LinkedAssetPickerProps) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
+  const raw = useQuery(api.assets.list)
   const assets = useMemo<Asset[]>(
-    () => (db ? listAssets(db) : []),
-    [db, watcher],
+    () => (raw ? raw.map(toLegacyAsset) : []),
+    [raw],
   )
   const [query, setQuery] = useState("")
   const { recent, push } = useRecentlyLinkedAssets()

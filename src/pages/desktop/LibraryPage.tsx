@@ -11,18 +11,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useDb, useDbWatcher } from "@/db"
-import {
-  listDocuments,
-  updateDocument,
-  type DocumentFilters,
-} from "@/db/repositories/documents"
+import { useMutation, useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
 import type { Doc, DocumentStatus, DocumentType } from "@/types"
+import { toLegacyDoc } from "@/lib/convex-adapters"
 import {
   DocumentLibraryTable,
   type AssetPreview,
   type DocumentRowAction,
 } from "@/components/docs/DocumentLibraryTable"
+import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
 import { AskIdaSheet } from "@/components/ai/AskIdaSheet"
 import { toast } from "sonner"
 
@@ -57,57 +56,35 @@ function LoadingState() {
 }
 
 export function LibraryPage() {
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [groupByType, setGroupByType] = useState(false)
 
-  const filters: DocumentFilters = useMemo(() => {
-    const f: DocumentFilters = {}
-    if (search.trim()) f.search = search.trim()
-    if (statusFilter !== "all") f.status = statusFilter
-    if (typeFilter !== "all") f.type = typeFilter
-    return f
-  }, [search, statusFilter, typeFilter])
+  const queryArgs = useMemo(
+    () => ({
+      ...(statusFilter !== "all" && { status: statusFilter }),
+      ...(typeFilter !== "all" && { type: typeFilter }),
+      ...(search.trim() && { search: search.trim() }),
+    }),
+    [search, statusFilter, typeFilter],
+  )
 
-  const docs = useMemo(() => {
-    if (!db) return []
-    return listDocuments(db, filters)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, filters, watcher])
-
-  // Linked assets per document (id, code, name) for the hover popover.
-  // One join query so there's no N+1 read.
-  const assetsByDoc = useMemo(() => {
-    const map: Record<string, AssetPreview[]> = {}
-    if (!db) return map
-    const stmt = db.prepare(
-      `SELECT da.document_id AS document_id, a.id, a.code, a.name
-         FROM document_assets da
-         JOIN assets a ON a.id = da.asset_id
-        ORDER BY a.code`,
-    )
-    try {
-      while (stmt.step()) {
-        const r = stmt.getAsObject() as {
-          document_id: string
-          id: string
-          code: string
-          name: string
-        }
-        const list = map[r.document_id] ?? []
-        list.push({ id: r.id, code: r.code, name: r.name })
-        map[r.document_id] = list
-      }
-    } finally {
-      stmt.free()
-    }
-    return map
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, watcher])
+  const result = useQuery(api.documents.listWithAssetPreviews, queryArgs)
+  const archive = useMutation(api.documents.archive)
+  const remove = useMutation(api.documents.remove)
+  const [docToDelete, setDocToDelete] = useState<Doc | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const ready = result !== undefined
+  const docs = useMemo(
+    () => (result ? result.docs.map(toLegacyDoc) : []),
+    [result],
+  )
+  const assetsByDoc = useMemo<Record<string, AssetPreview[]>>(
+    () => result?.assetsByDoc ?? {},
+    [result],
+  )
 
   function handleAction(action: DocumentRowAction, doc: Doc) {
     if (action === "open") {
@@ -122,17 +99,45 @@ export function LibraryPage() {
       return
     }
     if (action === "duplicate") {
-      toast.info("Duplicate is not wired up in the showcase build.")
+      toast.info("Duplicate isn't wired up yet.")
       return
     }
     if (action === "archive") {
-      if (!db) return
-      try {
-        updateDocument(db, doc.id, { status: "archived" })
-        toast.success(`Archived ${doc.naming_code}`)
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to archive")
-      }
+      archive({ id: doc.id as Id<"documents"> })
+        .then(() => toast.success(`Archived ${doc.naming_code}`))
+        .catch((err) =>
+          toast.error(err instanceof Error ? err.message : "Failed to archive"),
+        )
+      return
+    }
+    if (action === "delete") {
+      setDocToDelete(doc)
+    }
+  }
+
+  async function handleArchiveFromDialog() {
+    if (!docToDelete) return
+    try {
+      await archive({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Archived ${docToDelete.naming_code}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to archive")
+    } finally {
+      setDocToDelete(null)
+    }
+  }
+
+  async function handleDeleteConfirm() {
+    if (!docToDelete) return
+    setDeleting(true)
+    try {
+      await remove({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Deleted ${docToDelete.naming_code}`)
+      setDocToDelete(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete")
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -248,6 +253,15 @@ export function LibraryPage() {
           />
         )}
       </div>
+
+      <DeleteDocumentDialog
+        doc={docToDelete}
+        open={!!docToDelete}
+        onOpenChange={(o) => !o && !deleting && setDocToDelete(null)}
+        onArchive={() => void handleArchiveFromDialog()}
+        onConfirmDelete={() => void handleDeleteConfirm()}
+        busy={deleting}
+      />
     </div>
   )
 }

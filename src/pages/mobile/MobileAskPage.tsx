@@ -12,14 +12,10 @@
 import { useMemo, useState } from "react"
 import { useLocation, useSearch } from "wouter"
 import { Globe } from "lucide-react"
-import {
-  useDb,
-  useDbWatcher,
-  getAsset,
-  getDocument,
-  listAssets,
-  listDocuments,
-} from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
 import { AskPanel, type AskPanelScope } from "@/components/ai/AskPanel"
 import { MobileHeader } from "@/components/mobile/MobileHeader"
 import { MobileSearchInput } from "@/components/mobile/MobileSearchInput"
@@ -47,24 +43,38 @@ function scopeToQuery(scope: AskPanelScope): string {
 export function MobileAskPage() {
   const search = useSearch()
   const [, navigate] = useLocation()
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
-
   const scope = useMemo(() => parseScope(search), [search])
 
+  const docForScope = useQuery(
+    api.documents.get,
+    scope?.kind === "doc"
+      ? { id: scope.id as Id<"documents"> }
+      : "skip",
+  )
+  const assetForScope = useQuery(
+    api.assets.get,
+    scope?.kind === "asset" ? { id: scope.id as Id<"assets"> } : "skip",
+  )
+  const ready = true
+
   const scopeLabel = useMemo(() => {
-    if (!db || !scope) return null
+    if (!scope) return null
     if (scope.kind === "library") {
       return { kind: "Library", text: "Across every document", id: "library" }
     }
     if (scope.kind === "doc") {
-      const d = getDocument(db, scope.id)
-      return d ? { kind: "Document", text: d.title, id: d.id } : null
+      return docForScope
+        ? {
+            kind: "Document",
+            text: docForScope.title,
+            id: docForScope._id,
+          }
+        : null
     }
-    const a = getAsset(db, scope.id)
-    return a ? { kind: "Asset", text: a.name, id: a.id } : null
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, scope, watcher])
+    return assetForScope
+      ? { kind: "Asset", text: assetForScope.name, id: assetForScope._id }
+      : null
+  }, [scope, docForScope, assetForScope])
 
   const backTo =
     scopeLabel && scopeLabel.kind !== "Library"
@@ -129,21 +139,18 @@ function ScopePicker({
   ready: boolean
   onPick: (scope: AskPanelScope) => void
 }) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
-  // Asset is the most common operator entry point; default to it.
   const [tab, setTab] = useState<"asset" | "doc">("asset")
   const [query, setQuery] = useState("")
 
+  const rawAssets = useQuery(api.assets.list)
+  const rawDocs = useQuery(api.documents.list, {})
   const assets = useMemo(
-    () => (db ? listAssets(db) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher],
+    () => (rawAssets ? rawAssets.map(toLegacyAsset) : []),
+    [rawAssets],
   )
   const docs = useMemo(
-    () => (db ? listDocuments(db) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher],
+    () => (rawDocs ? rawDocs.map(toLegacyDoc) : []),
+    [rawDocs],
   )
 
   const filteredAssets = useMemo(() => {

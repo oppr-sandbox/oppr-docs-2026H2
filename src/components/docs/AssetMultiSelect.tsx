@@ -12,7 +12,9 @@
 
 import { useMemo, useState } from "react"
 import { Check, ChevronsUpDown, MapPin, X } from "lucide-react"
-import { useDb, useDbWatcher, listAssets } from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import { toLegacyAsset } from "@/lib/convex-adapters"
 import type { Asset } from "@/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -68,12 +70,14 @@ export function AssetMultiSelect({
   disabled,
   placeholder = "Select assets…",
 }: AssetMultiSelectProps) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
   const [open, setOpen] = useState(false)
   const { recent, push } = useRecentlyLinkedAssets()
 
-  const assets = useMemo(() => (db ? listAssets(db) : []), [db, watcher])
+  const raw = useQuery(api.assets.list)
+  const assets = useMemo(
+    () => (raw ? raw.map(toLegacyAsset) : []),
+    [raw],
+  )
   const byId = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets])
 
   const recentAssets = useMemo(

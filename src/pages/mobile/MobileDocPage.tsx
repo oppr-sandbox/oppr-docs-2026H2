@@ -9,13 +9,10 @@ import {
 } from "react"
 import { useLocation, useRoute, useSearch } from "wouter"
 import { Copy, FileDown, Maximize2, Share2, Star, X } from "lucide-react"
-import {
-  useDb,
-  useDbWatcher,
-  getDocumentWithAssets,
-  getCurrentVersion,
-  getPdf,
-} from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MobileHeader } from "@/components/mobile/MobileHeader"
@@ -78,8 +75,6 @@ export function MobileDocPage() {
   const [, params] = useRoute<{ id: string }>("/m/docs/:id")
   const id = params?.id ?? ""
   const search = useSearch()
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
   const { isPinned, togglePin } = usePinned()
   const { pushRecent } = useRecentlyViewed()
@@ -92,22 +87,42 @@ export function MobileDocPage() {
     return Number.isFinite(n) && n > 0 ? n : 1
   }, [search])
 
-  const doc = useMemo(
-    () => (db && id ? getDocumentWithAssets(db, id) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, id, watcher],
+  const docResult = useQuery(
+    api.documents.getWithAssets,
+    id ? { id: id as Id<"documents"> } : "skip",
   )
-  const version = useMemo(
-    () => (db && id ? getCurrentVersion(db, id) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, id, watcher],
+  const ready = docResult !== undefined
+  const currentVersion = useQuery(
+    api.documents.getCurrentVersion,
+    id ? { documentId: id as Id<"documents"> } : "skip",
   )
-  const pdf = useMemo(() => {
-    if (!db || !version) return null
-    if (version.body_kind !== "pdf" || !version.pdf_blob_id) return null
-    return getPdf(db, version.pdf_blob_id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, version, watcher])
+  const pdfUrl = useQuery(
+    api.files.getUrl,
+    currentVersion?.pdfStorageId
+      ? { storageId: currentVersion.pdfStorageId }
+      : "skip",
+  )
+
+  const doc = useMemo(() => {
+    if (!docResult) return null
+    return {
+      ...toLegacyDoc(docResult.doc),
+      assets: docResult.assets.map(toLegacyAsset),
+    }
+  }, [docResult])
+
+  const version = useMemo(() => {
+    if (!currentVersion) return null
+    return {
+      id: currentVersion._id,
+      document_id: currentVersion.documentId,
+      version: currentVersion.version,
+      body_kind: currentVersion.bodyKind,
+      body_json: currentVersion.bodyJson,
+      pdf_blob_id: currentVersion.pdfStorageId,
+      published_at: new Date(currentVersion.publishedAt).toISOString(),
+    }
+  }, [currentVersion])
 
   // Source of back navigation: previous asset page if present, else /m/docs.
   const backTo = doc?.assets?.[0]
@@ -264,17 +279,11 @@ export function MobileDocPage() {
             No published version yet.
           </div>
         ) : version.body_kind === "pdf" ? (
-          !pdf || pdf.bytes.length === 0 ? (
-            <div className="rounded-2xl border bg-card p-6 text-center text-sm text-muted-foreground">
-              PDF not yet uploaded.
-            </div>
-          ) : (
-            <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
-              <Suspense fallback={VIEWER_FALLBACK}>
-                <PdfViewer bytes={pdf.bytes} pageNumber={initialPage} />
-              </Suspense>
-            </ViewerErrorBoundary>
-          )
+          <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
+            <Suspense fallback={VIEWER_FALLBACK}>
+              <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
+            </Suspense>
+          </ViewerErrorBoundary>
         ) : version.body_kind === "tiptap" ? (
           version.body_json == null ? (
             <div className="rounded-2xl border bg-card p-6 text-center text-sm text-muted-foreground">
@@ -300,10 +309,10 @@ export function MobileDocPage() {
           subtitle={doc.naming_code}
           onClose={() => setFullscreen(false)}
         >
-          {version?.body_kind === "pdf" && pdf && pdf.bytes.length > 0 ? (
+          {version?.body_kind === "pdf" ? (
             <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
               <Suspense fallback={VIEWER_FALLBACK}>
-                <PdfViewer bytes={pdf.bytes} pageNumber={initialPage} />
+                <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
               </Suspense>
             </ViewerErrorBoundary>
           ) : version?.body_kind === "tiptap" && version.body_json != null ? (

@@ -40,13 +40,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useDb, useDbWatcher } from "@/db"
-import {
-  listAllAssetLogs,
-  listAssets,
-  updateAsset,
-} from "@/db/repositories/assets"
-import type { Asset, AssetLog, Doc } from "@/types"
+import { useMutation, useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import { toLegacyAsset, toLegacyAssetLog } from "@/lib/convex-adapters"
+import type { Asset, AssetLog } from "@/types"
 import { cn } from "@/lib/utils"
 import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
 import { EditAssetModal } from "@/components/docs/EditAssetModal"
@@ -75,8 +73,6 @@ function formatCreated(iso: string): string {
 }
 
 export function AssetsPage() {
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
 
   const [selectedFloorplan, setSelectedFloorplan] = useState(FLOORPLAN_OPTIONS[0])
@@ -88,58 +84,48 @@ export function AssetsPage() {
   const [editAsset, setEditAsset] = useState<Asset | null>(null)
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
-  const assets = useMemo(() => {
-    if (!db) return []
-    return listAssets(db)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, watcher])
+  const result = useQuery(api.assets.listForAssetsPage)
+  const updateAssetMut = useMutation(api.assets.update)
+  const ready = result !== undefined
 
-  // Map of asset_id -> linked documents (id, naming_code, title, current_version).
-  // Built in one query so each row can render the count + hover list without N+1 reads.
+  const assets = useMemo(
+    () => (result ? result.assets.map(toLegacyAsset) : []),
+    [result],
+  )
+
   const docsByAsset = useMemo(() => {
     const map = new Map<string, DocPreview[]>()
-    if (!db) return map
-    const stmt = db.prepare(
-      `SELECT da.asset_id AS asset_id, d.id, d.naming_code, d.title, d.current_version
-         FROM document_assets da
-         JOIN documents d ON d.id = da.document_id
-        ORDER BY d.naming_code`,
-    )
-    try {
-      while (stmt.step()) {
-        const r = stmt.getAsObject() as {
-          asset_id: string
-          id: string
-          naming_code: string
-          title: string
-          current_version: number
-        }
-        const list = map.get(r.asset_id) ?? []
-        list.push({
-          id: r.id,
-          naming_code: r.naming_code,
-          title: r.title,
-          current_version: r.current_version,
-        })
-        map.set(r.asset_id, list)
-      }
-    } finally {
-      stmt.free()
+    if (!result) return map
+    for (const [k, v] of Object.entries(result.docsByAsset)) {
+      map.set(k, v)
     }
     return map
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, watcher])
+  }, [result])
 
   const logsByAsset = useMemo(() => {
-    if (!db) return new Map<string, AssetLog[]>()
-    return listAllAssetLogs(db)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, watcher])
+    const map = new Map<string, AssetLog[]>()
+    if (!result) return map
+    for (const [k, v] of Object.entries(result.logsByAsset)) {
+      map.set(k, v.map(toLegacyAssetLog))
+    }
+    return map
+  }, [result])
 
-  function handleSaveEdit(patch: { name: string; code: string; description: string; level: number }) {
-    if (!db || !editAsset) return
+  async function handleSaveEdit(patch: {
+    name: string
+    code: string
+    description: string
+    level: number
+  }) {
+    if (!editAsset) return
     try {
-      updateAsset(db, editAsset.id, patch)
+      await updateAssetMut({
+        id: editAsset.id as Id<"assets">,
+        name: patch.name,
+        code: patch.code,
+        description: patch.description,
+        level: patch.level,
+      })
       toast.success("Asset updated")
       setEditAsset(null)
     } catch (err) {

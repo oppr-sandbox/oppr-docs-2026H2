@@ -20,12 +20,10 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Separator } from "@/components/ui/separator"
-import {
-  useDb,
-  getDocumentWithAssets,
-  getCurrentVersion,
-  getUser,
-} from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
 import { extractPpeItems } from "@/components/docs/DocumentHero"
 import {
   buildPrintDoc,
@@ -43,19 +41,35 @@ interface PublishToPdfDialogProps {
 export function PublishToPdfDialog({ documentId, trigger }: PublishToPdfDialogProps) {
   const [open, setOpen] = useState(false)
   const [options, setOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS)
-  const { db } = useDb()
 
-  // Re-resolve every time the dialog opens — cheap and avoids stale data.
+  const docResult = useQuery(
+    api.documents.getWithAssets,
+    open ? { id: documentId as Id<"documents"> } : "skip",
+  )
+  const versionResult = useQuery(
+    api.documents.getCurrentVersion,
+    open ? { documentId: documentId as Id<"documents"> } : "skip",
+  )
+
   const resolved = useMemo(() => {
-    if (!db || !open) return null
-    const doc = getDocumentWithAssets(db, documentId)
-    if (!doc) return null
-    const version = getCurrentVersion(db, documentId)
-    if (!version) return null
-    const owner = doc.owner_id ? getUser(db, doc.owner_id) : null
-    const ppeOnDoc = version.body_kind === "tiptap" ? extractPpeItems(version.body_json) : []
-    return { doc, version, owner, ppeOnDoc }
-  }, [db, documentId, open])
+    if (!docResult || !versionResult) return null
+    const doc = {
+      ...toLegacyDoc(docResult.doc),
+      assets: docResult.assets.map(toLegacyAsset),
+    }
+    const version = {
+      id: versionResult._id,
+      document_id: versionResult.documentId,
+      version: versionResult.version,
+      body_kind: versionResult.bodyKind,
+      body_json: versionResult.bodyJson,
+      pdf_blob_id: versionResult.pdfStorageId,
+      published_at: new Date(versionResult.publishedAt).toISOString(),
+    }
+    const ppeOnDoc =
+      version.body_kind === "tiptap" ? extractPpeItems(version.body_json) : []
+    return { doc, version, owner: null, ppeOnDoc }
+  }, [docResult, versionResult])
 
   function buildHtml(): string | null {
     if (!resolved) return null

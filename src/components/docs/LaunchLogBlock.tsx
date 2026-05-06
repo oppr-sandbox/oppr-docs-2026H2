@@ -24,7 +24,9 @@ import {
 import { ExternalLink, Play, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { useDb, useDbWatcher, listLogs } from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import { toLegacyLog } from "@/lib/convex-adapters"
 import {
   Dialog,
   DialogContent,
@@ -170,9 +172,11 @@ export function LaunchLogPicker({
   onOpenChange,
   onSelect,
 }: LaunchLogPickerProps) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
-  const logs = useMemo<Log[]>(() => (db ? listLogs(db) : []), [db, watcher])
+  const raw = useQuery(api.logs.list)
+  const logs = useMemo<Log[]>(
+    () => (raw ? raw.map(toLegacyLog) : []),
+    [raw],
+  )
   const [query, setQuery] = useState("")
 
   const filtered = useMemo(() => {
@@ -257,13 +261,12 @@ function LaunchLogModal({
   label,
   mode,
 }: LaunchLogModalProps) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
+  const raw = useQuery(api.logs.list)
   const log = useMemo<Log | null>(() => {
-    if (!db || !logId) return null
-    const found = listLogs(db).find((l) => l.id === logId)
-    return found ?? null
-  }, [db, logId, watcher])
+    if (!raw || !logId) return null
+    const found = raw.find((l) => l._id === logId)
+    return found ? toLegacyLog(found) : null
+  }, [raw, logId])
 
   const title = log?.name ?? label
   const type = log?.type ?? null

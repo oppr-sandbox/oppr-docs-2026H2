@@ -5,9 +5,8 @@
 // fabricate links to entities that don't exist.
 
 import { useMemo } from "react"
-import { useDb, useDbWatcher } from "@/db"
-import { listAssets } from "@/db/repositories/assets"
-import { listDocuments } from "@/db/repositories/documents"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
 
 export type CodeKind = "doc" | "asset" | "log"
 
@@ -23,48 +22,41 @@ export interface CodeEntry {
 export type CodeIndex = Map<string, CodeEntry>
 
 export function useCodeIndex(): CodeIndex {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
+  const docs = useQuery(api.documents.list, {})
+  const assets = useQuery(api.assets.list)
 
   return useMemo(() => {
     const idx: CodeIndex = new Map()
-    if (!db) return idx
-    for (const d of listDocuments(db)) {
-      idx.set(d.naming_code, {
+    for (const d of docs ?? []) {
+      idx.set(d.namingCode, {
         kind: "doc",
-        code: d.naming_code,
-        id: d.id,
+        code: d.namingCode,
+        id: d._id,
         label: d.title,
       })
     }
-    for (const a of listAssets(db)) {
+    for (const a of assets ?? []) {
       idx.set(a.code, {
         kind: "asset",
         code: a.code,
-        id: a.id,
+        id: a._id,
         label: a.name,
       })
-      if (a.linked_log_code) {
-        idx.set(a.linked_log_code, {
+      if (a.linkedLogCode) {
+        idx.set(a.linkedLogCode, {
           kind: "log",
-          code: a.linked_log_code,
-          id: a.id,
-          label: a.linked_log_name ?? a.linked_log_code,
+          code: a.linkedLogCode,
+          id: a._id,
+          label: a.linkedLogName ?? a.linkedLogCode,
         })
       }
     }
     return idx
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, watcher])
+  }, [docs, assets])
 }
 
 /**
  * Pattern for entity codes used by the Oppr DOCS naming convention.
- * Examples that match: HOL-OPS-SOP-0001, RMR-101, HOL-OPS-LOG-0001.
- *
- * The third segment is a 2–4 character A-Z token (SOP/MAN/WI/LMRA/LOG/ASSET/etc.)
- * and the fourth is the 3–5 digit serial. We also accept short asset codes
- * like RMR-101 (two segments).
  */
 export const CODE_PATTERN =
   /\b[A-Z]{2,4}-[A-Z0-9]{2,5}(?:-[A-Z]{2,5}-\d{3,5})?\b/g

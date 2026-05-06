@@ -3,7 +3,9 @@
 import { useMemo, useState } from "react"
 import { useLocation } from "wouter"
 import { Search } from "lucide-react"
-import { useDb, useDbWatcher, listDocuments } from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import { toLegacyDoc } from "@/lib/convex-adapters"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MobileHeader } from "@/components/mobile/MobileHeader"
@@ -13,18 +15,14 @@ import { MobileGlobalSearch } from "@/components/mobile/MobileGlobalSearch"
 import { usePinned } from "@/components/mobile/use-mobile-prefs"
 
 export function MobileDocsPage() {
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
   const { isPinned, togglePin } = usePinned()
   const [query, setQuery] = useState("")
   const [globalOpen, setGlobalOpen] = useState(false)
 
-  const docs = useMemo(
-    () => (db ? listDocuments(db) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher],
-  )
+  const raw = useQuery(api.documents.list, {})
+  const ready = raw !== undefined
+  const docs = useMemo(() => (raw ? raw.map(toLegacyDoc) : []), [raw])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

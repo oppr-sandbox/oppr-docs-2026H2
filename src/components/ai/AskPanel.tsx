@@ -20,7 +20,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { Link, useLocation } from "wouter"
+import { useLocation } from "wouter"
 import {
   Copy,
   Mic,
@@ -32,28 +32,17 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Asset, AssetLog, Citation, Doc, QaMessage } from "@/types"
-import { useDb, useDbWatcher } from "@/db/DbProvider"
+import { useMutation, useQuery } from "convex/react"
+import { useAuthToken } from "@convex-dev/auth/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
 import {
-  addMessage,
-  createSession,
-  deleteMessages,
-  getSession,
-  listMessages,
-  listSessions,
-  popLastTurn,
-  type SessionScope,
-} from "@/db/repositories/qa"
-import { listMissing } from "@/db/repositories/embeddings"
+  toLegacyCitation,
+  toLegacyQaMessage,
+} from "@/lib/convex-adapters"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import {
-  askQuestion,
-  buildRelatedRail,
-  embedMissingChunks,
-  hasApiKey,
-  type RelatedRail as RelatedRailData,
-} from "@/ai"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { MessageContent } from "./MessageContent"
 import { SourcesBlock } from "./SourcesBlock"
@@ -109,93 +98,55 @@ export function AskPanel({
   onCitationClick,
   className,
 }: AskPanelProps) {
-  const { db, ready } = useDb()
-  const dbVersion = useDbWatcher()
   const [, navigate] = useLocation()
 
-  // Local scope state so the chip can drive changes without a parent.
   const [scope, setScope] = useState<AskPanelScope>(scopeProp)
   useEffect(() => setScope(scopeProp), [scopeProp])
 
-  const [sessionId, setSessionId] = useState<string | null>(sessionIdProp ?? null)
-  const [messages, setMessages] = useState<QaMessage[]>([])
   const [clearOpen, setClearOpen] = useState(false)
   const [input, setInput] = useState("")
   const [pending, setPending] = useState(false)
   const [streamingText, setStreamingText] = useState("")
-  const [embedProgress, setEmbedProgress] = useState<{ done: number; total: number } | null>(null)
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
-  const apiKeyConfigured = hasApiKey()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const authToken = useAuthToken()
 
-  const scopeKey =
-    scope.kind === "library" ? "library" : `${scope.kind}:${scope.id}`
+  const scopeKindArg = scope.kind
+  const scopeIdArg = scope.kind === "library" ? "library" : scope.id
 
-  // Resolve the existing session for the current scope, if any. We do NOT
-  // create one here — that's deferred to the first `send()` so opening Ask
-  // and bailing doesn't litter the DB with empty session rows.
-  useEffect(() => {
-    if (!db || !ready) return
-    if (sessionIdProp) {
-      const s = getSession(db, sessionIdProp)
-      if (s) {
-        setSessionId(s.id)
-        setMessages(listMessages(db, s.id))
-        return
-      }
-    }
-    const filter =
-      scope.kind === "library"
-        ? { scope_kind: "library" as const, scope_id: "library" }
-        : { scope_kind: scope.kind, scope_id: scope.id }
-    const existing = listSessions(db, filter)
-    if (existing.length) {
-      setSessionId(existing[0].id)
-      setMessages(listMessages(db, existing[0].id))
-    } else {
-      setSessionId(null)
-      setMessages([])
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, ready, scopeKey, sessionIdProp])
+  const sessionsList = useQuery(api.qa.listSessions, {
+    scopeKind: scopeKindArg,
+    scopeId: scopeIdArg,
+  })
+  const sessionId =
+    sessionIdProp ?? sessionsList?.[0]?._id ?? null
 
-  /** Lazy session creator. Returns the session id, creating the row if needed. */
-  function ensureSession(): string | null {
-    if (!db) return null
-    if (sessionId) return sessionId
-    const sessionScope: SessionScope =
-      scope.kind === "library" ? { kind: "library" } : scope
-    const created = createSession(db, sessionScope)
-    setSessionId(created.id)
-    return created.id
-  }
+  const messagesRaw = useQuery(
+    api.qa.listMessages,
+    sessionId ? { sessionId: sessionId as Id<"qaSessions"> } : "skip",
+  )
+  const messages: QaMessage[] = useMemo(
+    () => (messagesRaw ? messagesRaw.map(toLegacyQaMessage) : []),
+    [messagesRaw],
+  )
+
+  const ensureSession = useMutation(api.qa.ensureSession)
+  const addMessage = useMutation(api.qa.addMessage)
+  const deleteMessages = useMutation(api.qa.deleteMessages)
+  const popLastTurn = useMutation(api.qa.popLastTurn)
 
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages, streamingText, pending])
-
-  const refreshMessages = useCallback(() => {
-    if (!db || !sessionId) return
-    setMessages(listMessages(db, sessionId))
-  }, [db, sessionId])
-
-  useEffect(() => {
-    if (!pending) refreshMessages()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dbVersion])
+  }, [messages, pending, streamingText])
 
   function handleScopeChange(next: AskPanelScope) {
     if (next.kind === scope.kind) {
       if (next.kind === "library") return
       if ("id" in next && "id" in scope && next.id === scope.id) return
     }
-    // Cancel any in-flight stream so its tokens can't land in the new
-    // session as if they belonged there. Without this, a slow library
-    // answer could write into a doc-scoped chat after the operator
-    // switches scope.
     abortRef.current?.abort()
     abortRef.current = null
     setStreamingText("")
@@ -205,31 +156,35 @@ export function AskPanel({
   }
 
   function handleClearChat() {
-    // Empty session: skip the confirmation, just reset local state.
-    if (!db || !sessionId || messages.length === 0) {
+    if (!sessionId || messages.length === 0) {
       abortRef.current?.abort()
       abortRef.current = null
       setStreamingText("")
       setPending(false)
-      setMessages([])
       return
     }
     setClearOpen(true)
   }
 
-  function handleClearConfirm() {
-    if (!db || !sessionId) {
-      setMessages([])
-      setClearOpen(false)
-      return
+  async function handleClearConfirm() {
+    if (sessionId) {
+      try {
+        await deleteMessages({ sessionId: sessionId as Id<"qaSessions"> })
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to clear chat",
+        )
+      }
     }
     abortRef.current?.abort()
     abortRef.current = null
     setStreamingText("")
     setPending(false)
-    deleteMessages(db, sessionId)
-    setMessages([])
     setClearOpen(false)
+  }
+
+  function handleStop() {
+    abortRef.current?.abort()
   }
 
   // Default citation handler — navigate to the doc with optional page deep
@@ -259,123 +214,167 @@ export function AskPanel({
   }
 
   async function send(question: string) {
-    if (!db) return
     if (!question.trim() || pending) return
-    if (!apiKeyConfigured) {
-      toast.error("Add your Gemini API key in Settings first.")
+    if (!authToken) {
+      toast.error("Not signed in.")
       return
     }
-
-    // Lazy-create the session row only when we actually have a question to
-    // send. Capture the resolved id once so concurrent setSessionId calls
-    // don't race the rest of this function.
-    const activeSessionId = ensureSession()
-    if (!activeSessionId) return
+    const siteUrl = import.meta.env.VITE_CONVEX_SITE_URL as
+      | string
+      | undefined
+    if (!siteUrl) {
+      toast.error("VITE_CONVEX_SITE_URL is not configured.")
+      return
+    }
 
     setInput("")
     setPending(true)
     setStreamingText("")
+
     const ac = new AbortController()
     abortRef.current = ac
 
-    addMessage(db, { session_id: activeSessionId, role: "user", text: question })
-    refreshMessages()
+    let activeSessionId: Id<"qaSessions">
+    try {
+      activeSessionId = await ensureSession({
+        scopeKind: scopeKindArg,
+        scopeId: scopeIdArg,
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start chat")
+      setPending(false)
+      return
+    }
 
     try {
-      const missing = listMissing(db)
-      if (missing.length > 0) {
-        const toastId = toast.loading(`Computing embeddings for ${missing.length} excerpts…`)
-        try {
-          await embedMissingChunks(db, (p) => {
-            setEmbedProgress(p)
-            toast.loading(`Computing embeddings ${p.done}/${p.total}…`, { id: toastId })
-          })
-          toast.success("Embeddings ready", { id: toastId })
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : "Embedding failed", { id: toastId })
-          setPending(false)
-          setEmbedProgress(null)
-          return
-        } finally {
-          setEmbedProgress(null)
-        }
+      await addMessage({
+        sessionId: activeSessionId,
+        role: "user",
+        text: question,
+        citations: null,
+      })
+
+      const history = messages.map((m) => ({ role: m.role, text: m.text }))
+      const askScope =
+        scope.kind === "library"
+          ? { kind: "library" as const }
+          : scope.kind === "doc"
+            ? { kind: "doc" as const, id: scope.id }
+            : { kind: "asset" as const, id: scope.id }
+
+      const res = await fetch(`${siteUrl}/ai/askStream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ scope: askScope, question, history }),
+        signal: ac.signal,
+      })
+      if (!res.ok || !res.body) {
+        const body = await res.text().catch(() => "")
+        throw new Error(`Stream failed: ${res.status} ${body.slice(0, 200)}`)
       }
 
-      // Replay history — exclude the user message we just persisted; the
-      // generator adds it back as the final turn. Error/(stopped) turns are
-      // additionally filtered inside askQuestion before they hit the model.
-      const priorHistory = listMessages(db, activeSessionId).slice(0, -1)
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
       let accumulated = ""
       let finalCitations: Citation[] | null = null
-      for await (const ev of askQuestion(
-        db,
-        scope,
-        question,
-        priorHistory,
-        { signal: ac.signal },
-      )) {
-        if (ev.delta) {
-          accumulated += ev.delta
-          setStreamingText(accumulated)
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        let nl: number
+        while ((nl = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, nl).trim()
+          buffer = buffer.slice(nl + 1)
+          if (!line) continue
+          let event: { type: string; text?: string; citations?: unknown[]; message?: string }
+          try {
+            event = JSON.parse(line)
+          } catch {
+            continue
+          }
+          if (event.type === "delta" && typeof event.text === "string") {
+            accumulated += event.text
+            setStreamingText(accumulated)
+          } else if (event.type === "done") {
+            const raw = (event.citations ?? []) as Array<{
+              documentId: string
+              documentTitle: string
+              chunkId: string
+              pageOrSection: string | null
+              excerpt: string
+              origin: "asset-link" | "cross-link" | "log"
+            }>
+            finalCitations = raw.map(toLegacyCitation)
+          } else if (event.type === "error") {
+            throw new Error(event.message ?? "Stream error")
+          }
         }
-        if (ev.done) finalCitations = ev.citations ?? null
       }
 
-      const stoppedMidStream = ac.signal.aborted
-
-      // Don't persist a noisy turn if the user stopped before any text
-      // arrived — clean cancel. Same for empty (no response) when the
-      // backend yielded nothing useful.
-      if (!accumulated && stoppedMidStream) {
+      const stopped = ac.signal.aborted
+      if (!accumulated && stopped) {
         setStreamingText("")
         return
       }
 
       const text = accumulated || "(no response)"
-      addMessage(db, {
-        session_id: activeSessionId,
+      const citationsForStorage = (finalCitations ?? []).map((c) => ({
+        documentId: c.document_id as Id<"documents">,
+        documentTitle: c.document_title,
+        chunkId: c.chunk_id as Id<"chunks">,
+        pageOrSection: c.page_or_section,
+        excerpt: c.excerpt,
+        origin: c.origin,
+      }))
+      await addMessage({
+        sessionId: activeSessionId,
         role: "assistant",
         text,
-        citations: finalCitations,
+        citations: citationsForStorage.length ? citationsForStorage : null,
       })
-      refreshMessages()
       setStreamingText("")
     } catch (err) {
+      if (ac.signal.aborted) {
+        setStreamingText("")
+        return
+      }
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`Q&A failed: ${msg}`)
       try {
-        addMessage(db, {
-          session_id: activeSessionId,
+        await addMessage({
+          sessionId: activeSessionId,
           role: "assistant",
           text: `Error: ${msg}`,
+          citations: null,
         })
       } catch {
         // best-effort
       }
-      refreshMessages()
       setStreamingText("")
     } finally {
       setPending(false)
-      // Only clear abortRef if it still points at the AC we made — a scope
-      // change may have replaced it with null mid-flight.
       if (abortRef.current === ac) abortRef.current = null
     }
   }
 
-  function handleStop() {
-    abortRef.current?.abort()
+  function handleRegenerate() {
+    if (pending || !sessionId) return
+    void (async () => {
+      const previous = await popLastTurn({
+        sessionId: sessionId as Id<"qaSessions">,
+      })
+      if (!previous) return
+      void send(previous)
+    })()
   }
 
-  function handleRegenerate() {
-    if (pending || !db || !sessionId) return
-    // Pop the trailing user→assistant pair so send() can re-add the user
-    // question once and produce a fresh assistant response — avoids
-    // duplicate user turns stacking up after multiple regenerates.
-    const previousQuestion = popLastTurn(db, sessionId)
-    refreshMessages()
-    if (!previousQuestion) return
-    void send(previousQuestion)
-  }
+  // Suppress unused-warning for legacy adapter (citations reused in messages)
+  void toLegacyCitation
 
   // Voice input -----------------------------------------------------------
 
@@ -439,7 +438,7 @@ export function AskPanel({
 
   // ----------------------------------------------------------------------
 
-  const visibleMessages = useMemo(() => {
+  const visibleMessages = useMemo<QaMessage[]>(() => {
     if (!streamingText) return messages
     return [
       ...messages,
@@ -450,7 +449,7 @@ export function AskPanel({
         text: streamingText,
         citations: null,
         created_at: new Date().toISOString(),
-      } satisfies QaMessage,
+      },
     ]
   }, [messages, sessionId, streamingText])
 
@@ -466,11 +465,6 @@ export function AskPanel({
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Ask IDA</h2>
           <div className="flex items-center gap-2">
-            {embedProgress && embedProgress.total > 0 && (
-              <span className="text-[10px] text-muted-foreground">
-                Indexing {embedProgress.done}/{embedProgress.total}
-              </span>
-            )}
             {messages.length > 0 && (
               <Button
                 type="button"
@@ -494,19 +488,6 @@ export function AskPanel({
           )}
         </div>
       </header>
-
-      {!apiKeyConfigured && (
-        <div className="border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Add your Gemini API key in{" "}
-          <Link
-            href="/settings"
-            className="font-medium text-foreground underline underline-offset-2"
-          >
-            Settings
-          </Link>{" "}
-          to enable Q&A.
-        </div>
-      )}
 
       <div
         ref={scrollRef}
@@ -675,19 +656,7 @@ function MessageBlock({
   onRegenerate,
   pending,
 }: MessageBlockProps) {
-  const { db } = useDb()
-  const dbVersion = useDbWatcher()
   const isUser = message.role === "user"
-
-  // Build the related rail from the cited document set.
-  const related: RelatedRailData = useMemo(() => {
-    if (!db || !message.citations || message.citations.length === 0) {
-      return { otherDocs: [], assets: [], logs: [] }
-    }
-    const ids = Array.from(new Set(message.citations.map((c) => c.document_id)))
-    return buildRelatedRail(db, ids, scope)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, message.citations, scope, dbVersion])
 
   if (isUser) {
     return (
@@ -722,10 +691,9 @@ function MessageBlock({
           message.citations &&
           message.citations.length > 0 && (
             <RelatedRail
-              data={related}
-              // Hide on doc/asset scope — the operator is already on the
-              // entity, "more like this" feels like noise. In library
-              // scope it's the only way to discover related docs.
+              citedDocumentIds={Array.from(
+                new Set(message.citations.map((c) => c.document_id)),
+              )}
               hidden={scope.kind !== "library"}
               onDocClick={onDocNavigate}
               onAssetClick={onAssetNavigate}
