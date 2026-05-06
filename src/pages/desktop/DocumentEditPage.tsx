@@ -14,17 +14,10 @@ import { useEffect, useMemo, useState } from "react"
 import { useLocation, useRoute } from "wouter"
 import { toast } from "sonner"
 import { Eye, EyeOff, FileDown } from "lucide-react"
-import {
-  useDb,
-  useDbWatcher,
-  getDocumentWithAssets,
-  getCurrentVersion,
-  updateDocument,
-  setDocumentAssets,
-  publishVersion,
-  deleteForDocumentVersion,
-  insertMany as insertChunks,
-} from "@/db"
+import { useMutation, useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/docs/StatusBadge"
 import { TypeBadge } from "@/components/docs/TypeBadge"
@@ -35,10 +28,7 @@ import {
   validateMetadata,
   type MetadataValue,
 } from "@/components/docs/MetadataPanel"
-import {
-  buildChunkRows,
-  chunksFromTipTap,
-} from "@/components/docs/chunking"
+import { chunksFromTipTap } from "@/components/docs/chunking"
 import { cn } from "@/lib/utils"
 import type { DocumentStatus, DocumentType } from "@/types"
 
@@ -68,18 +58,39 @@ function writeMetaVisible(visible: boolean) {
 export function DocumentEditPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id/edit")
   const [, setLocation] = useLocation()
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
 
   const docId = params?.id ?? ""
-  const docWithAssets = useMemo(
-    () => (db && docId ? getDocumentWithAssets(db, docId) : null),
-    [db, docId, watcher],
+  const savePublish = useMutation(api.documents.savePublish)
+  const docResult = useQuery(
+    api.documents.getWithAssets,
+    docId ? { id: docId as Id<"documents"> } : "skip",
   )
-  const currentVersion = useMemo(
-    () => (db && docId ? getCurrentVersion(db, docId) : null),
-    [db, docId, watcher],
+  const versionResult = useQuery(
+    api.documents.getCurrentVersion,
+    docId ? { documentId: docId as Id<"documents"> } : "skip",
   )
+  const ready = docResult !== undefined
+
+  const docWithAssets = useMemo(() => {
+    if (!docResult) return null
+    return {
+      ...toLegacyDoc(docResult.doc),
+      assets: docResult.assets.map(toLegacyAsset),
+    }
+  }, [docResult])
+
+  const currentVersion = useMemo(() => {
+    if (!versionResult) return null
+    return {
+      id: versionResult._id,
+      document_id: versionResult.documentId,
+      version: versionResult.version,
+      body_kind: versionResult.bodyKind,
+      body_json: versionResult.bodyJson,
+      pdf_blob_id: versionResult.pdfStorageId,
+      published_at: new Date(versionResult.publishedAt).toISOString(),
+    }
+  }, [versionResult])
 
   const [meta, setMeta] = useState<MetadataValue | null>(null)
   const [body, setBody] = useState<unknown>(EMPTY_DOC)
@@ -129,7 +140,7 @@ export function DocumentEditPage() {
   }, [errors, metaVisible])
 
   async function save(targetStatus: DocumentStatus, navigateAfter?: string) {
-    if (!db || !meta || !docWithAssets) return
+    if (!meta || !docWithAssets) return
     const validation = validateMetadata(meta)
     if (!validation.ok) {
       setErrors(validation.errors)
@@ -139,22 +150,18 @@ export function DocumentEditPage() {
     setErrors({})
     setSaving(targetStatus)
     try {
-      updateDocument(db, docWithAssets.id, {
+      const raw = chunksFromTipTap(body)
+      const result = await savePublish({
+        id: docWithAssets.id as Id<"documents">,
+        namingCode: meta.namingCode,
         title: meta.title.trim(),
         type: meta.type,
-        naming_code: meta.namingCode,
-        tags: meta.tags,
         status: targetStatus,
+        tags: meta.tags,
+        assetIds: meta.assetIds as Id<"assets">[],
+        body,
+        chunks: raw.map((r) => ({ text: r.text, section: r.section })),
       })
-      setDocumentAssets(db, docWithAssets.id, meta.assetIds)
-      const version = publishVersion(db, docWithAssets.id, {
-        kind: "tiptap",
-        json: body,
-      })
-      deleteForDocumentVersion(db, docWithAssets.id, version.version)
-      const raw = chunksFromTipTap(body)
-      const rows = buildChunkRows(docWithAssets.id, version.version, raw)
-      if (rows.length) insertChunks(db, rows)
 
       const label =
         targetStatus === "draft"
@@ -162,7 +169,7 @@ export function DocumentEditPage() {
           : targetStatus === "in_review"
             ? "Submitted for review"
             : "Published"
-      toast.success(`${label} (v${version.version})`)
+      toast.success(`${label} (v${result.version})`)
       if (navigateAfter) setLocation(navigateAfter)
     } catch (err) {
       console.error(err)
@@ -173,9 +180,9 @@ export function DocumentEditPage() {
     }
   }
 
-  if (!ready || !db) {
+  if (!ready) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">Loading database…</div>
+      <div className="p-6 text-sm text-muted-foreground">Loading…</div>
     )
   }
   if (!docWithAssets) {

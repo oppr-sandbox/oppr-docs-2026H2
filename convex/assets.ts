@@ -1,7 +1,7 @@
-import { query } from "./_generated/server"
+import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 import { Doc } from "./_generated/dataModel"
-import { requireUser } from "./lib/auth"
+import { requireUser, requireUserId } from "./lib/auth"
 
 export const list = query({
   args: {},
@@ -141,5 +141,39 @@ export const listAssetLogs = query({
       .take(500)
     logs.sort((a, b) => a.code.localeCompare(b.code))
     return logs
+  },
+})
+
+export const update = mutation({
+  args: {
+    id: v.id("assets"),
+    name: v.optional(v.string()),
+    code: v.optional(v.string()),
+    description: v.optional(v.union(v.string(), v.null())),
+    level: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const asset = await ctx.db.get(args.id)
+    if (!asset) throw new Error("Asset not found")
+
+    if (args.code !== undefined && args.code !== asset.code) {
+      const dupe = await ctx.db
+        .query("assets")
+        .withIndex("by_code", (q) => q.eq("code", args.code as string))
+        .unique()
+      if (dupe && dupe._id !== args.id) {
+        throw new Error(`Asset code ${args.code} is already in use.`)
+      }
+    }
+
+    const patch: Partial<Doc<"assets">> = {}
+    if (args.name !== undefined) patch.name = args.name
+    if (args.code !== undefined) patch.code = args.code
+    if (args.description !== undefined) patch.description = args.description
+    if (args.level !== undefined) patch.level = args.level
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(args.id, patch)
+    }
   },
 })

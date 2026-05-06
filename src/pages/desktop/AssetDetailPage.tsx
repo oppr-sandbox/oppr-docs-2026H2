@@ -3,7 +3,7 @@ import { Link, useLocation, useRoute } from "wouter"
 import { ArrowLeft, Factory, FileText, Link as LinkIcon, MapPin, Pencil, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useQuery } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import {
@@ -35,6 +35,8 @@ export function AssetDetailPage() {
     id ? { id: id as Id<"assets"> } : "skip",
   )
   const previewBundle = useQuery(api.documents.listWithAssetPreviews, {})
+  const updateAssetMut = useMutation(api.assets.update)
+  const archive = useMutation(api.documents.archive)
   const ready = result !== undefined
 
   const asset = useMemo(
@@ -66,8 +68,16 @@ export function AssetDetailPage() {
         .catch(() => toast.error("Failed to copy"))
       return
     }
-    if (action === "duplicate" || action === "archive") {
-      toast.info("Document writes land in Phase 2c (next step).")
+    if (action === "duplicate") {
+      toast.info("Duplicate isn't wired up yet.")
+      return
+    }
+    if (action === "archive") {
+      archive({ id: doc.id as Id<"documents"> })
+        .then(() => toast.success(`Archived ${doc.naming_code}`))
+        .catch((err) =>
+          toast.error(err instanceof Error ? err.message : "Failed to archive"),
+        )
     }
   }
 
@@ -234,9 +244,19 @@ export function AssetDetailPage() {
         asset={asset}
         open={editOpen}
         onOpenChange={setEditOpen}
-        onSave={() => {
-          toast.info("Asset updates land in Phase 2c (next step).")
-          setEditOpen(false)
+        onSave={async (patch) => {
+          try {
+            await updateAssetMut({
+              id: asset.id as Id<"assets">,
+              ...patch,
+            })
+            toast.success("Asset updated")
+            setEditOpen(false)
+          } catch (err) {
+            toast.error(
+              err instanceof Error ? err.message : "Failed to update asset",
+            )
+          }
         }}
       />
       <LogReferenceModal

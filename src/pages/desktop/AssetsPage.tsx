@@ -40,8 +40,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useQuery } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset, toLegacyAssetLog } from "@/lib/convex-adapters"
 import type { Asset, AssetLog } from "@/types"
 import { cn } from "@/lib/utils"
@@ -84,6 +85,7 @@ export function AssetsPage() {
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
   const result = useQuery(api.assets.listForAssetsPage)
+  const updateAssetMut = useMutation(api.assets.update)
   const ready = result !== undefined
 
   const assets = useMemo(
@@ -109,14 +111,26 @@ export function AssetsPage() {
     return map
   }, [result])
 
-  function handleSaveEdit(_patch: {
+  async function handleSaveEdit(patch: {
     name: string
     code: string
     description: string
     level: number
   }) {
-    toast.info("Asset updates land in Phase 2c (next step).")
-    setEditAsset(null)
+    if (!editAsset) return
+    try {
+      await updateAssetMut({
+        id: editAsset.id as Id<"assets">,
+        name: patch.name,
+        code: patch.code,
+        description: patch.description,
+        level: patch.level,
+      })
+      toast.success("Asset updated")
+      setEditAsset(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update asset")
+    }
   }
 
   return (

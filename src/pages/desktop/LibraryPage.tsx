@@ -11,8 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useQuery } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
 import type { Doc, DocumentStatus, DocumentType } from "@/types"
 import { toLegacyDoc } from "@/lib/convex-adapters"
 import {
@@ -70,6 +71,7 @@ export function LibraryPage() {
   )
 
   const result = useQuery(api.documents.listWithAssetPreviews, queryArgs)
+  const archive = useMutation(api.documents.archive)
   const ready = result !== undefined
   const docs = useMemo(
     () => (result ? result.docs.map(toLegacyDoc) : []),
@@ -92,9 +94,16 @@ export function LibraryPage() {
         .catch(() => toast.error("Failed to copy"))
       return
     }
-    if (action === "duplicate" || action === "archive") {
-      toast.info("Document writes land in Phase 2c (next step).")
+    if (action === "duplicate") {
+      toast.info("Duplicate isn't wired up yet.")
       return
+    }
+    if (action === "archive") {
+      archive({ id: doc.id as Id<"documents"> })
+        .then(() => toast.success(`Archived ${doc.naming_code}`))
+        .catch((err) =>
+          toast.error(err instanceof Error ? err.message : "Failed to archive"),
+        )
     }
   }
 
