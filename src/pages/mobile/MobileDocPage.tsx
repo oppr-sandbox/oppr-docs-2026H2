@@ -27,6 +27,9 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
+const PdfViewer = lazy(() =>
+  import("@/components/docs/PdfViewer").then((m) => ({ default: m.PdfViewer })),
+)
 const TiptapReadOnly = lazy(() =>
   import("@/components/docs/TiptapReadOnly").then((m) => ({
     default: m.TiptapReadOnly,
@@ -71,11 +74,18 @@ const VIEWER_UNAVAILABLE = (
 export function MobileDocPage() {
   const [, params] = useRoute<{ id: string }>("/m/docs/:id")
   const id = params?.id ?? ""
-  useSearch()
+  const search = useSearch()
   const [, navigate] = useLocation()
   const { isPinned, togglePin } = usePinned()
   const { pushRecent } = useRecentlyViewed()
   const [fullscreen, setFullscreen] = useState(false)
+
+  const initialPage = useMemo(() => {
+    const p = new URLSearchParams(search).get("page")
+    if (!p) return 1
+    const n = parseInt(p, 10)
+    return Number.isFinite(n) && n > 0 ? n : 1
+  }, [search])
 
   const docResult = useQuery(
     api.documents.getWithAssets,
@@ -85,6 +95,12 @@ export function MobileDocPage() {
   const currentVersion = useQuery(
     api.documents.getCurrentVersion,
     id ? { documentId: id as Id<"documents"> } : "skip",
+  )
+  const pdfUrl = useQuery(
+    api.files.getUrl,
+    currentVersion?.pdfStorageId
+      ? { storageId: currentVersion.pdfStorageId }
+      : "skip",
   )
 
   const doc = useMemo(() => {
@@ -263,9 +279,11 @@ export function MobileDocPage() {
             No published version yet.
           </div>
         ) : version.body_kind === "pdf" ? (
-          <div className="rounded-2xl border bg-card p-6 text-center text-sm text-muted-foreground">
-            PDF rendering moves to Convex storage in Phase 4.
-          </div>
+          <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
+            <Suspense fallback={VIEWER_FALLBACK}>
+              <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
+            </Suspense>
+          </ViewerErrorBoundary>
         ) : version.body_kind === "tiptap" ? (
           version.body_json == null ? (
             <div className="rounded-2xl border bg-card p-6 text-center text-sm text-muted-foreground">
@@ -291,7 +309,13 @@ export function MobileDocPage() {
           subtitle={doc.naming_code}
           onClose={() => setFullscreen(false)}
         >
-          {version?.body_kind === "tiptap" && version.body_json != null ? (
+          {version?.body_kind === "pdf" ? (
+            <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
+              <Suspense fallback={VIEWER_FALLBACK}>
+                <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
+              </Suspense>
+            </ViewerErrorBoundary>
+          ) : version?.body_kind === "tiptap" && version.body_json != null ? (
             <ViewerErrorBoundary fallback={VIEWER_UNAVAILABLE}>
               <Suspense fallback={VIEWER_FALLBACK}>
                 <TiptapReadOnly content={version.body_json} />

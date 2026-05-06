@@ -15,6 +15,7 @@ import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
+import { PdfViewer } from "@/components/docs/PdfViewer"
 import { TiptapReadOnly } from "@/components/docs/TiptapReadOnly"
 import { VersionHistoryDrawer } from "@/components/docs/VersionHistoryDrawer"
 import { DocumentHero, extractPpeItems } from "@/components/docs/DocumentHero"
@@ -25,11 +26,18 @@ import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
   const id = params?.id
-  useSearch()
+  const search = useSearch()
   const [, navigate] = useLocation()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [overrideVersion, setOverrideVersion] = useState<number | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  const initialPage = useMemo(() => {
+    const p = new URLSearchParams(search).get("page")
+    if (!p) return 1
+    const n = parseInt(p, 10)
+    return Number.isFinite(n) && n > 0 ? n : 1
+  }, [search])
 
   const docResult = useQuery(
     api.documents.getWithAssets,
@@ -38,6 +46,12 @@ export function DocumentReadPage() {
   const currentVersion = useQuery(
     api.documents.getCurrentVersion,
     id ? { documentId: id as Id<"documents"> } : "skip",
+  )
+  const pdfUrl = useQuery(
+    api.files.getUrl,
+    currentVersion?.pdfStorageId
+      ? { storageId: currentVersion.pdfStorageId }
+      : "skip",
   )
   const ready = docResult !== undefined
 
@@ -190,9 +204,7 @@ export function DocumentReadPage() {
               No published version yet.
             </div>
           ) : version.body_kind === "pdf" ? (
-            <div className="rounded-md border border-dashed p-12 text-center text-sm text-muted-foreground">
-              PDF rendering moves to Convex storage in Phase 4.
-            </div>
+            <PdfViewer url={pdfUrl ?? null} pageNumber={initialPage} />
           ) : (
             <div ref={contentRef} className="rounded-md border bg-background p-6">
               <TiptapReadOnly content={version.body_json} />

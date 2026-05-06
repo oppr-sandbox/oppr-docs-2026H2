@@ -14,6 +14,7 @@ import type * as ai_embed from "../ai/embed.js";
 import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
 import type * as documents from "../documents.js";
+import type * as files from "../files.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as qa from "../qa.js";
@@ -33,6 +34,7 @@ declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   auth: typeof auth;
   documents: typeof documents;
+  files: typeof files;
   http: typeof http;
   "lib/auth": typeof lib_auth;
   qa: typeof qa;
