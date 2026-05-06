@@ -7,7 +7,7 @@ import {
   T_PUBLISHED,
   T_UPDATED,
   paragraphChunks,
-} from "@/db/seed"
+} from "./seedDataset"
 
 interface SeedAsset {
   code: string

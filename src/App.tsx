@@ -23,7 +23,6 @@ import { MobileDocsPage } from "@/pages/mobile/MobileDocsPage"
 import { MobileDocPage } from "@/pages/mobile/MobileDocPage"
 import { MobileAskPage } from "@/pages/mobile/MobileAskPage"
 import { MobileFloorplanPage } from "@/pages/mobile/MobileFloorplanPage"
-import { DbProvider } from "@/db/DbProvider"
 import { AuthGate } from "@/auth/AuthGate"
 
 function App() {
@@ -33,7 +32,6 @@ function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
       <AuthGate>
-        <DbProvider>
         <Toaster richColors position="top-right" />
         {isMobile ? (
           <MobileShell>
@@ -86,7 +84,6 @@ function App() {
             </Switch>
           </DesktopShell>
         )}
-        </DbProvider>
       </AuthGate>
     </ThemeProvider>
   )

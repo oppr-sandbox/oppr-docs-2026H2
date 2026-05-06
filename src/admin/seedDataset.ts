@@ -9,7 +9,6 @@
 // via pdf-lib (seedPdf.ts) so the demo has at least one genuine PDF to test
 // the reader, page deep-linking, and RAG-over-PDF chunking.
 
-import type { Database } from "sql.js"
 import {
   type JSONNode,
   SOP_HANDOVER_BODY,
@@ -23,8 +22,7 @@ import {
   LMRA_HOTWORK_BODY,
   WI_STICKER_BODY,
   SOP_END_OF_SHIFT_BODY,
-} from "./seedDocs"
-import { buildDryingOvenPdf } from "./seedPdf"
+} from "./seedBodies"
 
 // --- Versioning -------------------------------------------------------------
 
@@ -516,170 +514,3 @@ export const DRYING_OVEN_PAGE_CHUNKS: ParaChunk[] = [
   },
 ]
 
-// --- Seed entry point -------------------------------------------------------
-
-export async function seed(db: Database): Promise<void> {
-  const dryingOvenPdfBytes = await buildDryingOvenPdf()
-
-  db.run("BEGIN TRANSACTION;")
-  try {
-    // Users
-    const userStmt = db.prepare("INSERT INTO users (id, name, role) VALUES (?, ?, ?);")
-    userStmt.run([USER_ENGINEER, "Maya Chen", "engineer"])
-    userStmt.run([USER_OPERATOR, "Tomás Pereira", "operator"])
-    userStmt.run([USER_MANAGER, "Aïsha Bakker", "manager"])
-    userStmt.free()
-
-    // Assets
-    const assetStmt = db.prepare(
-      `INSERT INTO assets
-        (id, code, name, site, location, qr_token, created_at,
-         description, level, floorplan, is_linked,
-         linked_log_code, linked_log_name, linked_log_description,
-         pin_number, pin_x, pin_y)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-    )
-    const assetLogStmt = db.prepare(
-      `INSERT INTO asset_logs (asset_id, code, name, description) VALUES (?, ?, ?, ?);`,
-    )
-    for (const a of ASSETS) {
-      assetStmt.run([
-        a.id,
-        a.code,
-        a.name,
-        SITE,
-        a.location,
-        `qr-${a.code.toLowerCase()}`,
-        T_CREATED,
-        a.description,
-        a.level,
-        a.floorplan,
-        a.is_linked,
-        a.linked_log_code,
-        a.linked_log_name,
-        a.linked_log_description,
-        a.pin_number,
-        a.pin_x,
-        a.pin_y,
-      ])
-      for (const l of a.logs) {
-        assetLogStmt.run([a.id, l.code, l.name, l.description])
-      }
-    }
-    assetStmt.free()
-    assetLogStmt.free()
-
-    // Logs
-    const logStmt = db.prepare("INSERT INTO logs (id, name, type) VALUES (?, ?, ?);")
-    for (const l of LOGS) logStmt.run([l.id, l.name, l.type])
-    logStmt.free()
-
-    // PDF blob — real generated PDF for Drying Oven 4.
-    const pdfStmt = db.prepare(
-      "INSERT INTO pdf_blobs (id, filename, mime, bytes, page_count) VALUES (?, ?, ?, ?, ?);",
-    )
-    pdfStmt.run([
-      "pdf-1",
-      "drying-oven-4-manual.pdf",
-      "application/pdf",
-      dryingOvenPdfBytes,
-      4,
-    ])
-    pdfStmt.free()
-
-    // Documents + versions + asset links + chunks
-    const docStmt = db.prepare(
-      `INSERT INTO documents (id, naming_code, title, type, status, current_version, owner_id, tags_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-    )
-    const versionStmt = db.prepare(
-      `INSERT INTO document_versions (id, document_id, version, body_kind, body_json, pdf_blob_id, published_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?);`,
-    )
-    const docAssetStmt = db.prepare(
-      "INSERT INTO document_assets (document_id, asset_id) VALUES (?, ?);",
-    )
-    const chunkStmt = db.prepare(
-      `INSERT INTO chunks (id, document_id, version, seq, text, page_or_section)
-       VALUES (?, ?, ?, ?, ?, ?);`,
-    )
-
-    for (const d of DOCUMENTS) {
-      docStmt.run([
-        d.id,
-        d.naming_code,
-        d.title,
-        d.type,
-        d.status,
-        1,
-        d.owner_id,
-        JSON.stringify(d.tags),
-        T_CREATED,
-        T_UPDATED,
-      ])
-      versionStmt.run([
-        `${d.id}-v1`,
-        d.id,
-        1,
-        d.body_kind,
-        d.body_kind === "tiptap" ? JSON.stringify(d.body_json) : null,
-        d.body_kind === "pdf" ? d.pdf_blob_id ?? null : null,
-        T_PUBLISHED,
-      ])
-      for (const aid of d.asset_ids) docAssetStmt.run([d.id, aid])
-
-      if (d.body_kind === "tiptap" && d.body_json) {
-        const chunks = paragraphChunks(d.body_json)
-        chunks.forEach((c, i) => {
-          chunkStmt.run([`${d.id}-chunk-${i + 1}`, d.id, 1, i + 1, c.text, c.section])
-        })
-      } else if (d.body_kind === "pdf" && d.id === "doc-6") {
-        DRYING_OVEN_PAGE_CHUNKS.forEach((c, i) => {
-          chunkStmt.run([`${d.id}-chunk-${i + 1}`, d.id, 1, i + 1, c.text, c.section])
-        })
-      }
-    }
-    docStmt.free()
-    versionStmt.free()
-    docAssetStmt.free()
-    chunkStmt.free()
-
-    // Log refs — point at TipTap node ids that exist in the seeded SOPs.
-    const refStmt = db.prepare(
-      `INSERT INTO document_log_refs (document_id, version, log_id, anchor_id) VALUES (?, ?, ?, ?);`,
-    )
-    refStmt.run(["doc-1", 1, "log-handover-daily", "anchor-log-handover"])
-    refStmt.run(["doc-2", 1, "log-quality-extruder", "anchor-log-quality-mixer"])
-    refStmt.free()
-
-    // Stamp the seed version so the provider can detect stale IndexedDB blobs
-    // belonging to operators on older versions of the demo data.
-    db.run(
-      "INSERT OR REPLACE INTO meta (key, value) VALUES ('seed_version', ?);",
-      [String(SEED_VERSION)],
-    )
-
-    db.run("COMMIT;")
-  } catch (err) {
-    db.run("ROLLBACK;")
-    throw err
-  }
-}
-
-/**
- * Read the seed version that was stamped into the persisted DB. Returns null
- * for pre-versioned blobs (the meta table existed but no row was inserted).
- */
-export function getStoredSeedVersion(db: Database): number | null {
-  const stmt = db.prepare("SELECT value FROM meta WHERE key = 'seed_version'")
-  try {
-    if (stmt.step()) {
-      const row = stmt.getAsObject() as { value?: string }
-      const n = row.value ? Number(row.value) : NaN
-      return Number.isFinite(n) ? n : null
-    }
-  } finally {
-    stmt.free()
-  }
-  return null
-}

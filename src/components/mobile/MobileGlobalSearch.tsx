@@ -6,12 +6,9 @@
 import { useEffect, useMemo, useState } from "react"
 import { useLocation } from "wouter"
 import { ChevronRight, Factory, Files, Search, X } from "lucide-react"
-import {
-  useDb,
-  useDbWatcher,
-  listAssets,
-  listDocuments,
-} from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
 import { MobileSearchInput } from "./MobileSearchInput"
 import { Button } from "@/components/ui/button"
 
@@ -21,10 +18,11 @@ interface MobileGlobalSearchProps {
 }
 
 export function MobileGlobalSearch({ open, onClose }: MobileGlobalSearchProps) {
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
   const [query, setQuery] = useState("")
+  const rawAssets = useQuery(api.assets.list, open ? undefined : "skip")
+  const rawDocs = useQuery(api.documents.list, open ? {} : "skip")
+  const ready = rawAssets !== undefined && rawDocs !== undefined
 
   // Reset query each time the overlay opens.
   useEffect(() => {
@@ -42,14 +40,12 @@ export function MobileGlobalSearch({ open, onClose }: MobileGlobalSearchProps) {
   }, [open])
 
   const assets = useMemo(
-    () => (ready && db && open ? listAssets(db) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher, ready, open],
+    () => (rawAssets ? rawAssets.map(toLegacyAsset) : []),
+    [rawAssets],
   )
   const docs = useMemo(
-    () => (ready && db && open ? listDocuments(db) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher, ready, open],
+    () => (rawDocs ? rawDocs.map(toLegacyDoc) : []),
+    [rawDocs],
   )
 
   const q = query.trim().toLowerCase()

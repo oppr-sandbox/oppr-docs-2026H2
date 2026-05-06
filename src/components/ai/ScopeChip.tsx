@@ -1,9 +1,3 @@
-// Scope chip — the always-visible "what am I asking about" pill at the top
-// of every chat panel. Click to swap scope without leaving the panel.
-//
-// Library / asset / doc are all reachable here; the chip itself shows the
-// active entity's code + label so the user always knows where they are.
-
 import { useMemo, useState } from "react"
 import {
   ChevronDown,
@@ -20,11 +14,9 @@ import {
 } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useDb, useDbWatcher } from "@/db"
-import { listAssets } from "@/db/repositories/assets"
-import { listDocuments } from "@/db/repositories/documents"
-import { getDocument } from "@/db/repositories/documents"
-import { getAsset } from "@/db/repositories/assets"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
 import type { AskPanelScope } from "./AskPanel"
 import { cn } from "@/lib/utils"
 
@@ -88,29 +80,42 @@ export function ScopeChip({ scope, onChange, className }: ScopeChipProps) {
 }
 
 export function useScopeLabel(scope: AskPanelScope) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
+  const doc = useQuery(
+    api.documents.get,
+    scope.kind === "doc" ? { id: scope.id as Id<"documents"> } : "skip",
+  )
+  const asset = useQuery(
+    api.assets.get,
+    scope.kind === "asset" ? { id: scope.id as Id<"assets"> } : "skip",
+  )
   return useMemo(() => {
     if (scope.kind === "library") {
       return { kindLabel: "Library", code: null, title: "All documents" }
     }
-    if (!db) return { kindLabel: scope.kind, code: null, title: null }
     if (scope.kind === "doc") {
-      const d = getDocument(db, scope.id)
       return {
         kindLabel: "Document",
-        code: d?.naming_code ?? null,
-        title: d?.title ?? null,
+        code: doc?.namingCode ?? null,
+        title: doc?.title ?? null,
       }
     }
-    const a = getAsset(db, scope.id)
     return {
       kindLabel: "Asset",
-      code: a?.code ?? null,
-      title: a?.name ?? null,
+      code: asset?.code ?? null,
+      title: asset?.name ?? null,
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, scope, watcher])
+  }, [scope, doc, asset])
+}
+
+interface DocPick {
+  _id: string
+  namingCode: string
+  title: string
+}
+interface AssetPick {
+  _id: string
+  code: string
+  name: string
 }
 
 function ScopeSwitcher({
@@ -120,36 +125,36 @@ function ScopeSwitcher({
   scope: AskPanelScope
   onPick: (next: AskPanelScope) => void
 }) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
   const [tab, setTab] = useState<"library" | "doc" | "asset">(scope.kind)
   const [query, setQuery] = useState("")
 
-  const docs = useMemo(
-    () => (db ? listDocuments(db) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher],
-  )
-  const assets = useMemo(
-    () => (db ? listAssets(db) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher],
-  )
+  const docs = useQuery(api.documents.list, {}) ?? []
+  const assets = useQuery(api.assets.list) ?? []
 
-  const filteredDocs = useMemo(() => {
+  const filteredDocs = useMemo<DocPick[]>(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return docs
-    return docs.filter(
+    const all = docs.map((d) => ({
+      _id: d._id,
+      namingCode: d.namingCode,
+      title: d.title,
+    }))
+    if (!q) return all
+    return all.filter(
       (d) =>
         d.title.toLowerCase().includes(q) ||
-        d.naming_code.toLowerCase().includes(q),
+        d.namingCode.toLowerCase().includes(q),
     )
   }, [docs, query])
 
-  const filteredAssets = useMemo(() => {
+  const filteredAssets = useMemo<AssetPick[]>(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return assets
-    return assets.filter(
+    const all = assets.map((a) => ({
+      _id: a._id,
+      code: a.code,
+      name: a.name,
+    }))
+    if (!q) return all
+    return all.filter(
       (a) =>
         a.code.toLowerCase().includes(q) ||
         a.name.toLowerCase().includes(q),
@@ -227,7 +232,7 @@ function DocList({
   docs,
   onPick,
 }: {
-  docs: ReturnType<typeof listDocuments>
+  docs: DocPick[]
   onPick: (id: string) => void
 }) {
   if (!docs.length) {
@@ -240,16 +245,16 @@ function DocList({
   return (
     <ul className="flex flex-col">
       {docs.map((d) => (
-        <li key={d.id}>
+        <li key={d._id}>
           <button
             type="button"
-            onClick={() => onPick(d.id)}
+            onClick={() => onPick(d._id)}
             className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
           >
             <Files className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <div className="font-mono text-[11px] font-bold">
-                {d.naming_code}
+                {d.namingCode}
               </div>
               <div className="truncate text-xs text-muted-foreground">
                 {d.title}
@@ -266,7 +271,7 @@ function AssetList({
   assets,
   onPick,
 }: {
-  assets: ReturnType<typeof listAssets>
+  assets: AssetPick[]
   onPick: (id: string) => void
 }) {
   if (!assets.length) {
@@ -279,10 +284,10 @@ function AssetList({
   return (
     <ul className="flex flex-col">
       {assets.map((a) => (
-        <li key={a.id}>
+        <li key={a._id}>
           <button
             type="button"
-            onClick={() => onPick(a.id)}
+            onClick={() => onPick(a._id)}
             className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
           >
             <Factory className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />

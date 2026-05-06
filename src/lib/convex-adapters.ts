@@ -1,5 +1,5 @@
 import type { Doc as ConvexDoc } from "../../convex/_generated/dataModel"
-import type { Asset, AssetLog, Doc } from "@/types"
+import type { Asset, AssetLog, Doc, Log } from "@/types"
 
 export function toLegacyDoc(d: ConvexDoc<"documents">): Doc {
   return {
@@ -35,6 +35,14 @@ export function toLegacyAsset(a: ConvexDoc<"assets">): Asset {
     pin_number: a.pinNumber,
     pin_x: a.pinX,
     pin_y: a.pinY,
+  }
+}
+
+export function toLegacyLog(l: ConvexDoc<"logs">): Log {
+  return {
+    id: l._id,
+    name: l.name,
+    type: l.type,
   }
 }
 

@@ -17,6 +17,7 @@ import type * as documents from "../documents.js";
 import type * as files from "../files.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as logs from "../logs.js";
 import type * as qa from "../qa.js";
 import type * as seed from "../seed.js";
 import type * as users from "../users.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   files: typeof files;
   http: typeof http;
   "lib/auth": typeof lib_auth;
+  logs: typeof logs;
   qa: typeof qa;
   seed: typeof seed;
   users: typeof users;
