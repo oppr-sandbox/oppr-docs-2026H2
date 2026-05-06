@@ -416,6 +416,60 @@ export const archive = mutation({
   },
 })
 
+export const relatedTo = query({
+  args: { documentIds: v.array(v.id("documents")) },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    if (args.documentIds.length === 0) {
+      return { otherDocs: [], assets: [], logs: [] }
+    }
+    const citedSet = new Set(args.documentIds.map(String))
+
+    const assetIdSet = new Set<string>()
+    for (const docId of args.documentIds) {
+      const links = await ctx.db
+        .query("documentAssets")
+        .withIndex("by_documentId", (q) => q.eq("documentId", docId))
+        .take(200)
+      for (const l of links) assetIdSet.add(String(l.assetId))
+    }
+    const assetIds = Array.from(assetIdSet) as Id<"assets">[]
+    const assets = (
+      await Promise.all(assetIds.map((id) => ctx.db.get(id)))
+    ).filter((a): a is Doc<"assets"> => a !== null)
+    assets.sort((a, b) => a.code.localeCompare(b.code))
+
+    const otherDocIdSet = new Set<string>()
+    for (const aid of assetIds) {
+      const links = await ctx.db
+        .query("documentAssets")
+        .withIndex("by_assetId", (q) => q.eq("assetId", aid))
+        .take(200)
+      for (const l of links) {
+        const id = String(l.documentId)
+        if (!citedSet.has(id)) otherDocIdSet.add(id)
+      }
+    }
+    const otherDocIds = Array.from(otherDocIdSet) as Id<"documents">[]
+    const otherDocs = (
+      await Promise.all(otherDocIds.map((id) => ctx.db.get(id)))
+    ).filter((d): d is Doc<"documents"> => d !== null)
+    otherDocs.sort((a, b) => a.title.localeCompare(b.title))
+
+    const logs: Doc<"assetLogs">[] = []
+    for (const aid of assetIds) {
+      const rows = await ctx.db
+        .query("assetLogs")
+        .withIndex("by_assetId", (q) => q.eq("assetId", aid))
+        .take(50)
+      for (const r of rows) logs.push(r)
+    }
+    logs.sort((a, b) => a.code.localeCompare(b.code))
+
+    return { otherDocs, assets, logs }
+  },
+})
+
 export const remove = mutation({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {

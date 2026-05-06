@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { MessageContent } from "./MessageContent"
 import { SourcesBlock } from "./SourcesBlock"
+import { RelatedRail } from "./RelatedRail"
 import { StarterPrompts } from "./StarterPrompts"
 import { ScopeChip } from "./ScopeChip"
 import { ClearChatDialog } from "./ClearChatDialog"
@@ -642,11 +643,15 @@ interface MessageBlockProps {
 
 function MessageBlock({
   message,
+  scope,
   isLast,
   streaming,
   onCitationOpen,
   onCitationAnchor,
   onCodeNavigate,
+  onAssetNavigate,
+  onDocNavigate,
+  onLogClick,
   onCopy,
   onRegenerate,
   pending,
@@ -681,6 +686,20 @@ function MessageBlock({
             onOpen={onCitationOpen}
           />
         )}
+
+        {!streaming &&
+          message.citations &&
+          message.citations.length > 0 && (
+            <RelatedRail
+              citedDocumentIds={Array.from(
+                new Set(message.citations.map((c) => c.document_id)),
+              )}
+              hidden={scope.kind !== "library"}
+              onDocClick={onDocNavigate}
+              onAssetClick={onAssetNavigate}
+              onLogClick={onLogClick}
+            />
+          )}
 
         {!streaming && (
           <div className="flex items-center gap-1 pt-1">
