@@ -1,4 +1,5 @@
 import { v } from "convex/values"
+import { GoogleGenerativeAI } from "@google/generative-ai"
 import {
   action,
   ActionCtx,
@@ -510,30 +511,7 @@ export const askStream = httpAction(async (ctx, req) => {
     )
   }
 
-  const geminiUrl = `${GEMINI_BASE}/models/${CHAT_MODEL}:streamGenerateContent?alt=sse&key=${apiKey}`
-  const upstream = await fetch(geminiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: prepared.contents,
-      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-    }),
-  })
-  if (!upstream.ok || !upstream.body) {
-    const body = await upstream.text().catch(() => "")
-    return new Response(
-      JSON.stringify({
-        error: `Gemini stream ${upstream.status}: ${body.slice(0, 300)}`,
-      }),
-      {
-        status: 502,
-        headers: { "Content-Type": "application/json", ...cors },
-      },
-    )
-  }
-
   const encoder = new TextEncoder()
-  const decoder = new TextDecoder()
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -541,41 +519,22 @@ export const askStream = httpAction(async (ctx, req) => {
         controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"))
       }
 
-      const reader = upstream.body!.getReader()
-      let buffer = ""
       let anyText = false
 
       try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-          let idx: number
-          while ((idx = buffer.indexOf("\n\n")) !== -1) {
-            const eventBlock = buffer.slice(0, idx)
-            buffer = buffer.slice(idx + 2)
-            for (const line of eventBlock.split("\n")) {
-              if (!line.startsWith("data:")) continue
-              const json = line.slice(5).trim()
-              if (!json || json === "[DONE]") continue
-              try {
-                const parsed = JSON.parse(json) as {
-                  candidates?: {
-                    content?: { parts?: { text?: string }[] }
-                  }[]
-                }
-                const delta =
-                  parsed.candidates?.[0]?.content?.parts
-                    ?.map((p) => p.text ?? "")
-                    .join("") ?? ""
-                if (delta) {
-                  anyText = true
-                  writeEvent({ type: "delta", text: delta })
-                }
-              } catch {
-                // skip malformed event
-              }
-            }
+        const client = new GoogleGenerativeAI(apiKey)
+        const model = client.getGenerativeModel({
+          model: CHAT_MODEL,
+          systemInstruction: SYSTEM_INSTRUCTION,
+        })
+        const result = await model.generateContentStream({
+          contents: prepared.contents,
+        })
+        for await (const chunk of result.stream) {
+          const delta = chunk.text()
+          if (delta) {
+            anyText = true
+            writeEvent({ type: "delta", text: delta })
           }
         }
         if (!anyText) {

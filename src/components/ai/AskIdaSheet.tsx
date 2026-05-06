@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button"
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
+  SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { AskPanel, type AskPanelScope } from "./AskPanel"
@@ -62,11 +64,10 @@ export function AskIdaSheet({
         side="right"
         className="flex w-full flex-col gap-0 p-0 sm:max-w-md md:max-w-lg"
       >
-        {/*
-         * The Sheet header is built into AskPanel itself; we deliberately
-         * skip SheetHeader/Title here so the slide-in feels like a single
-         * cohesive panel rather than nested chrome.
-         */}
+        <SheetTitle className="sr-only">Ask IDA</SheetTitle>
+        <SheetDescription className="sr-only">
+          Q&amp;A panel for the current document, asset, or the entire library.
+        </SheetDescription>
         <div className="flex-1 min-h-0 p-3">
           <AskPanel scope={scope} className="h-full border-0 shadow-none" />
         </div>
