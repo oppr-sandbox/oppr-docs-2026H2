@@ -1,5 +1,7 @@
 # Oppr DOCS
 
+[![status](https://img.shields.io/badge/status-production-green)](https://oppr-docs-2026-h2.vercel.app)
+
 Operator-facing knowledge base for manufacturing floors. Author SOPs in a rich editor, attach them to assets, retrieve them via QR, and ask questions through IDA (RAG over the document corpus).
 
 Built on **React 19 + Vite + TypeScript + Tailwind + shadcn/ui** with **Convex** as the backend (auth, database, file storage, vector search, server-side AI). Streaming chat via **Gemini** behind a Convex HTTP action.
