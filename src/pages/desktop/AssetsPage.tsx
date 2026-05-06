@@ -1,0 +1,458 @@
+// Project Assets — table view modeled on the LOGS module's asset list.
+//
+// Each row shows a static row number, the asset, a Pin No. badge (its
+// floorplan pin), a docs count + hover popover, a logs count + hover popover
+// (logs live in the Oppr LOGS module — clicking one opens a reference modal),
+// the floorplan name, the created date, and three row actions: open the
+// QR/preview modal, open the edit modal, or (visual-only) delete.
+//
+// A third icon button next to the grid/list view toggle opens a Floorplan
+// modal that renders the floorplan image with pin overlays and a connected
+// assets table beneath.
+
+import { useMemo, useState } from "react"
+import { useLocation } from "wouter"
+import {
+  Factory,
+  LayoutGrid,
+  List,
+  Map as MapIcon,
+  MapPin,
+  Pencil,
+  QrCode,
+  Trash2,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { useDb, useDbWatcher } from "@/db"
+import {
+  listAllAssetLogs,
+  listAssets,
+  updateAsset,
+} from "@/db/repositories/assets"
+import type { Asset, AssetLog, Doc } from "@/types"
+import { cn } from "@/lib/utils"
+import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
+import { EditAssetModal } from "@/components/docs/EditAssetModal"
+import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
+import {
+  DocsHoverPill,
+  FloorplanModal,
+  FLOORPLAN_IMAGE_SRC,
+  LogsHoverPill,
+  type DocPreview,
+} from "@/components/docs/FloorplanModal"
+import { toast } from "sonner"
+
+const FLOORPLAN_OPTIONS = ["Pigment Calcination Floorplan"]
+
+function formatCreated(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
+  } catch {
+    return iso
+  }
+}
+
+export function AssetsPage() {
+  const { db, ready } = useDb()
+  const watcher = useDbWatcher()
+  const [, navigate] = useLocation()
+
+  const [selectedFloorplan, setSelectedFloorplan] = useState(FLOORPLAN_OPTIONS[0])
+  const [view, setView] = useState<"grid" | "list">("list")
+  const [tab, setTab] = useState<"list" | "hierarchy">("list")
+  const [floorplanOpen, setFloorplanOpen] = useState(false)
+
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null)
+  const [editAsset, setEditAsset] = useState<Asset | null>(null)
+  const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
+
+  const assets = useMemo(() => {
+    if (!db) return []
+    return listAssets(db)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, watcher])
+
+  // Map of asset_id -> linked documents (id, naming_code, title, current_version).
+  // Built in one query so each row can render the count + hover list without N+1 reads.
+  const docsByAsset = useMemo(() => {
+    const map = new Map<string, DocPreview[]>()
+    if (!db) return map
+    const stmt = db.prepare(
+      `SELECT da.asset_id AS asset_id, d.id, d.naming_code, d.title, d.current_version
+         FROM document_assets da
+         JOIN documents d ON d.id = da.document_id
+        ORDER BY d.naming_code`,
+    )
+    try {
+      while (stmt.step()) {
+        const r = stmt.getAsObject() as {
+          asset_id: string
+          id: string
+          naming_code: string
+          title: string
+          current_version: number
+        }
+        const list = map.get(r.asset_id) ?? []
+        list.push({
+          id: r.id,
+          naming_code: r.naming_code,
+          title: r.title,
+          current_version: r.current_version,
+        })
+        map.set(r.asset_id, list)
+      }
+    } finally {
+      stmt.free()
+    }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, watcher])
+
+  const logsByAsset = useMemo(() => {
+    if (!db) return new Map<string, AssetLog[]>()
+    return listAllAssetLogs(db)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, watcher])
+
+  function handleSaveEdit(patch: { name: string; code: string; description: string; level: number }) {
+    if (!db || !editAsset) return
+    try {
+      updateAsset(db, editAsset.id, patch)
+      toast.success("Asset updated")
+      setEditAsset(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update asset")
+    }
+  }
+
+  return (
+    <div className="flex flex-col">
+      <header className="flex items-end justify-between gap-4 border-b px-6 py-5">
+        <div>
+          <h1 className="text-xl font-semibold">Project Assets</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Manage and view all assets linked to this project
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-muted-foreground">
+            Select Floorplan:
+          </span>
+          <Select value={selectedFloorplan} onValueChange={setSelectedFloorplan}>
+            <SelectTrigger className="h-9 w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FLOORPLAN_OPTIONS.map((fp) => (
+                <SelectItem key={fp} value={fp}>
+                  {fp}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </header>
+
+      <div className="space-y-4 p-6">
+        {/* Tabs + view toggle */}
+        <div className="flex items-center justify-between">
+          <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+            <TabsList>
+              <TabsTrigger value="list">Asset List</TabsTrigger>
+              <TabsTrigger value="hierarchy">Asset Hierarchy</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
+            <Button
+              variant={view === "grid" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setView("grid")}
+              aria-label="Grid view"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={view === "list" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setView("list")}
+              aria-label="List view"
+            >
+              <List className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setFloorplanOpen(true)}
+              aria-label="Open floorplan"
+              title="Open floorplan"
+            >
+              <MapIcon className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {!ready ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : assets.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed p-12 text-center">
+            <Factory className="h-8 w-8 text-muted-foreground/50" />
+            <p className="text-sm font-medium">No assets yet</p>
+            <p className="text-xs text-muted-foreground">
+              Reset the demo from Settings to seed sample data.
+            </p>
+          </div>
+        ) : tab === "hierarchy" ? (
+          <AssetHierarchyView assets={assets} />
+        ) : (
+          <div className="rounded-md border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-12 text-xs uppercase tracking-wide">#</TableHead>
+                  <TableHead className="text-xs uppercase tracking-wide">Asset</TableHead>
+                  <TableHead className="w-24 text-xs uppercase tracking-wide">Pin No.</TableHead>
+                  <TableHead className="w-24 text-xs uppercase tracking-wide">Docs</TableHead>
+                  <TableHead className="w-24 text-xs uppercase tracking-wide">Logs</TableHead>
+                  <TableHead className="text-xs uppercase tracking-wide">Floorplan</TableHead>
+                  <TableHead className="text-xs uppercase tracking-wide">Created</TableHead>
+                  <TableHead className="w-32 text-right text-xs uppercase tracking-wide">
+                    Actions
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {assets.map((asset, idx) => (
+                  <TableRow
+                    key={asset.id}
+                    className="cursor-pointer"
+                    onClick={() => navigate(`/assets/${asset.id}`)}
+                  >
+                    {/* # */}
+                    <TableCell className="align-middle text-sm font-medium tabular-nums">
+                      {String(idx + 1).padStart(2, "0")}
+                    </TableCell>
+
+                    {/* Asset name + id */}
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                          <QrCode className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium">
+                            {asset.name}
+                          </div>
+                          <div className="font-mono text-xs text-muted-foreground">
+                            {asset.code}
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+
+                    {/* Pin No. */}
+                    <TableCell>
+                      {asset.pin_number != null ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
+                          <MapPin className="h-3 w-3" />
+                          {String(asset.pin_number).padStart(2, "0")}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+
+                    {/* Linked documents — count + hover list */}
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DocsHoverPill
+                        docs={docsByAsset.get(asset.id) ?? []}
+                        onDocClick={(docId) => navigate(`/docs/${docId}`)}
+                      />
+                    </TableCell>
+
+                    {/* Logs (Oppr LOGS) — count + hover list */}
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <LogsHoverPill
+                        logs={logsByAsset.get(asset.id) ?? []}
+                        onLogClick={(log) => setActiveLog(log)}
+                      />
+                    </TableCell>
+
+                    {/* Floorplan */}
+                    <TableCell>
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <Factory className="h-3.5 w-3.5" />
+                        <span>{asset.floorplan ?? "—"}</span>
+                      </div>
+                    </TableCell>
+
+                    {/* Created */}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatCreated(asset.created_at)}
+                    </TableCell>
+
+                    {/* Actions */}
+                    <TableCell
+                      className="text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label="Show QR code"
+                          onClick={() => setPreviewAsset(asset)}
+                        >
+                          <QrCode className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label="Edit asset"
+                          onClick={() => setEditAsset(asset)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          aria-label="Delete asset"
+                          onClick={() =>
+                            toast.info(
+                              "Asset deletion is disabled in the showcase build.",
+                            )
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+
+      <AssetPreviewModal
+        asset={previewAsset}
+        open={!!previewAsset}
+        onOpenChange={(o) => !o && setPreviewAsset(null)}
+      />
+      <EditAssetModal
+        asset={editAsset}
+        open={!!editAsset}
+        onOpenChange={(o) => !o && setEditAsset(null)}
+        onSave={handleSaveEdit}
+      />
+      <LogReferenceModal
+        log={activeLog}
+        open={!!activeLog}
+        onOpenChange={(o) => !o && setActiveLog(null)}
+      />
+      <FloorplanModal
+        open={floorplanOpen}
+        onOpenChange={setFloorplanOpen}
+        floorplanName={selectedFloorplan}
+        imageSrc={FLOORPLAN_IMAGE_SRC}
+        assets={assets}
+        docsByAsset={docsByAsset}
+        logsByAsset={logsByAsset}
+        onPreviewAsset={(a) => setPreviewAsset(a)}
+        onOpenDoc={(docId) => {
+          setFloorplanOpen(false)
+          navigate(`/docs/${docId}`)
+        }}
+        onOpenLog={(log) => setActiveLog(log)}
+      />
+    </div>
+  )
+}
+
+function AssetHierarchyView({ assets }: { assets: Asset[] }) {
+  const roots = assets.filter((a) => a.level === 0)
+  const stations = assets.filter((a) => a.level !== 0)
+  return (
+    <div className="rounded-md border bg-card p-6">
+      <div className="mb-4 flex items-center gap-2 text-sm">
+        <Factory className="h-4 w-4 text-muted-foreground" />
+        <span className="font-semibold">{stations[0]?.floorplan ?? "Floorplan"}</span>
+        <span className="text-muted-foreground">— {assets.length} asset{assets.length === 1 ? "" : "s"}</span>
+      </div>
+      {roots.length > 0 && (
+        <div className="mb-4">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Root assets (Level 0)
+          </div>
+          <ul className="space-y-1">
+            {roots.map((r) => (
+              <li key={r.id} className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+                <span className="font-medium">{r.name}</span>
+                <span className="ml-2 font-mono text-xs text-muted-foreground">{r.code}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Loggable stations (Level 1)
+        </div>
+        <ul className="space-y-1">
+          {stations.map((s) => (
+            <li
+              key={s.id}
+              className={cn(
+                "flex items-center gap-2 rounded-md border px-3 py-2 text-sm",
+                s.is_linked
+                  ? "border-primary/20 bg-primary/5"
+                  : "bg-muted/20",
+              )}
+            >
+              <QrCode className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="font-medium">{s.name}</span>
+              <span className="font-mono text-xs text-muted-foreground">{s.code}</span>
+              {s.linked_log_code && (
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {s.linked_log_code}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}

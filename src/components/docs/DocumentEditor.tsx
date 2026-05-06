@@ -1,0 +1,885 @@
+// DocumentEditor
+//
+// TipTap-based authoring surface used by DocumentNewPage (initial body) and
+// DocumentEditPage (edit existing). Wraps TipTap with:
+//   - StarterKit + Image + Link + Placeholder + Table family
+//   - Two custom nodes: launchLog (block) and linkedAsset (inline)
+//   - A toolbar with bold / italic / strike / heading / list / quote / code
+//     block / link / image / table / horizontal rule controls
+//   - A simple "/" slash command: typing "/" at the start of an empty
+//     paragraph opens a fixed-position floating panel (no tippy dependency)
+//     positioned via `editor.view.coordsAtPos`. Items: H1/H2/H3, lists,
+//     "Launch log…", "Linked asset…".
+//
+// The editor surfaces a JSON onChange so the page owns persistence.
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
+import { EditorContent, useEditor, type Editor } from "@tiptap/react"
+import StarterKit from "@tiptap/starter-kit"
+import Image from "@tiptap/extension-image"
+import Link from "@tiptap/extension-link"
+import Placeholder from "@tiptap/extension-placeholder"
+import Table from "@tiptap/extension-table"
+import TableRow from "@tiptap/extension-table-row"
+import TableCell from "@tiptap/extension-table-cell"
+import TableHeader from "@tiptap/extension-table-header"
+import {
+  Bold,
+  Italic,
+  Strikethrough,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+  ListChecks,
+  Quote,
+  Code,
+  Link as LinkIcon,
+  Image as ImageIcon,
+  Table as TableIcon,
+  Minus,
+  Hash,
+  Play,
+  Type,
+  HardHat,
+  ChevronDown,
+  MoreHorizontal,
+  AlertTriangle,
+  Image as DiagramIcon,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { LaunchLogNode, LaunchLogPicker } from "./LaunchLogBlock"
+import { LinkedAssetNode, LinkedAssetPicker } from "./LinkedAssetBlock"
+import { CalloutNode, type CalloutKind } from "./CalloutBlock"
+import { PpeNode, PpePicker, PpeQuickPalette, type PpeItem } from "./PpeBlock"
+import { DiagramNode, DiagramPicker } from "./DiagramBlock"
+import { StepListNode, StepItemNode } from "./StepListBlock"
+import { SafetyPalette } from "./SafetyPalette"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+interface DocumentEditorProps {
+  content: unknown
+  onChange: (json: unknown) => void
+  editable?: boolean
+  placeholder?: string
+  /** Compact mode: toolbar is single-row, no slash menu. Used on the New page. */
+  compact?: boolean
+  /**
+   * Pixel offset for the sticky toolbar so it can dock below a sticky page
+   * header (DocumentEditPage uses 40 to sit below the h-10 strip). Default 0.
+   */
+  toolbarTopOffset?: number
+}
+
+interface SlashItem {
+  key: string
+  label: string
+  hint: string
+  icon: ReactNode
+  run: (editor: Editor) => void
+}
+
+function makeSlashItems(
+  openLogPicker: () => void,
+  openAssetPicker: () => void,
+  openPpePicker: () => void,
+  openDiagramPicker: () => void,
+  insertCallout: (kind: CalloutKind) => void,
+  insertSteps: () => void,
+): SlashItem[] {
+  return [
+    {
+      key: "h1",
+      label: "Heading 1",
+      hint: "Section title",
+      icon: <Heading1 className="h-4 w-4" />,
+      run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run(),
+    },
+    {
+      key: "h2",
+      label: "Heading 2",
+      hint: "Sub-section",
+      icon: <Heading2 className="h-4 w-4" />,
+      run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run(),
+    },
+    {
+      key: "h3",
+      label: "Heading 3",
+      hint: "Smaller heading",
+      icon: <Heading3 className="h-4 w-4" />,
+      run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run(),
+    },
+    {
+      key: "bullet",
+      label: "Bullet list",
+      hint: "Unordered list",
+      icon: <List className="h-4 w-4" />,
+      run: (e) => e.chain().focus().toggleBulletList().run(),
+    },
+    {
+      key: "ordered",
+      label: "Numbered list",
+      hint: "Ordered list",
+      icon: <ListOrdered className="h-4 w-4" />,
+      run: (e) => e.chain().focus().toggleOrderedList().run(),
+    },
+    {
+      key: "step-list",
+      label: "Numbered steps",
+      hint: "Procedure steps with badges",
+      icon: <ListChecks className="h-4 w-4" />,
+      run: () => insertSteps(),
+    },
+    {
+      key: "callout-warning",
+      label: "Warning callout",
+      hint: "Yellow warning box",
+      icon: <AlertTriangle className="h-4 w-4 text-amber-600" />,
+      run: () => insertCallout("warning"),
+    },
+    {
+      key: "callout-danger",
+      label: "Danger callout",
+      hint: "Red danger box",
+      icon: <AlertTriangle className="h-4 w-4 text-red-600" />,
+      run: () => insertCallout("danger"),
+    },
+    {
+      key: "callout-notice",
+      label: "Notice callout",
+      hint: "Blue info box",
+      icon: <AlertTriangle className="h-4 w-4 text-sky-600" />,
+      run: () => insertCallout("notice"),
+    },
+    {
+      key: "callout-tip",
+      label: "Tip callout",
+      hint: "Green tip box",
+      icon: <AlertTriangle className="h-4 w-4 text-emerald-600" />,
+      run: () => insertCallout("tip"),
+    },
+    {
+      key: "ppe",
+      label: "Required PPE…",
+      hint: "Pictogram row of PPE items",
+      icon: <HardHat className="h-4 w-4 text-orange-600" />,
+      run: () => openPpePicker(),
+    },
+    {
+      key: "diagram",
+      label: "Diagram…",
+      hint: "Process flow / map / decision tree",
+      icon: <DiagramIcon className="h-4 w-4 text-purple-600" />,
+      run: () => openDiagramPicker(),
+    },
+    {
+      key: "launch-log",
+      label: "Launch log…",
+      hint: "Hand off to an operational log",
+      icon: <Play className="h-4 w-4 text-sky-600" />,
+      run: () => openLogPicker(),
+    },
+    {
+      key: "linked-asset",
+      label: "Linked asset…",
+      hint: "Reference an asset inline",
+      icon: <Hash className="h-4 w-4 text-emerald-600" />,
+      run: () => openAssetPicker(),
+    },
+  ]
+}
+
+interface SlashMenuState {
+  open: boolean
+  /** Cursor position of the opening "/" so we can remove it on select. */
+  triggerFrom: number
+  query: string
+  top: number
+  left: number
+  index: number
+}
+
+const CLOSED_SLASH: SlashMenuState = {
+  open: false,
+  triggerFrom: 0,
+  query: "",
+  top: 0,
+  left: 0,
+  index: 0,
+}
+
+// --- Toolbar button helpers -------------------------------------------------
+
+function ToolbarButton({
+  onClick,
+  active,
+  disabled,
+  title,
+  children,
+}: {
+  onClick: () => void
+  active?: boolean
+  disabled?: boolean
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active ? "secondary" : "ghost"}
+      size="sm"
+      className={cn("h-8 w-8 p-0", active && "bg-secondary")}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+    >
+      {children}
+    </Button>
+  )
+}
+
+function ToolbarDivider() {
+  return <div className="mx-1 h-6 w-px bg-border" />
+}
+
+// --- Component --------------------------------------------------------------
+
+export function DocumentEditor({
+  content,
+  onChange,
+  editable = true,
+  placeholder = "Start writing… type / for blocks",
+  compact = false,
+  toolbarTopOffset = 0,
+}: DocumentEditorProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [slash, setSlash] = useState<SlashMenuState>(CLOSED_SLASH)
+  const [logPickerOpen, setLogPickerOpen] = useState(false)
+  const [assetPickerOpen, setAssetPickerOpen] = useState(false)
+  const [ppePickerOpen, setPpePickerOpen] = useState(false)
+  const [diagramPickerOpen, setDiagramPickerOpen] = useState(false)
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+      }),
+      Image.configure({ inline: false }),
+      Link.configure({ openOnClick: false, autolink: true }),
+      Placeholder.configure({ placeholder }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      LaunchLogNode,
+      LinkedAssetNode,
+      CalloutNode,
+      PpeNode,
+      DiagramNode,
+      StepListNode,
+      StepItemNode,
+    ],
+    content: content as object | string,
+    editable,
+    onUpdate: ({ editor: ed }) => {
+      onChange(ed.getJSON())
+      // If the slash menu is open, update its query from the text after `/`.
+      setSlash((prev) => {
+        if (!prev.open) return prev
+        const { from } = ed.state.selection
+        if (from < prev.triggerFrom) return CLOSED_SLASH
+        const text = ed.state.doc.textBetween(prev.triggerFrom, from, "\n", " ")
+        // text starts with "/"; query is the remainder.
+        if (!text.startsWith("/")) return CLOSED_SLASH
+        return { ...prev, query: text.slice(1) }
+      })
+    },
+    immediatelyRender: true,
+  })
+
+  // --- Slash trigger detection ---------------------------------------------
+
+  const closeSlash = useCallback(() => setSlash(CLOSED_SLASH), [])
+
+  const openSlash = useCallback(() => {
+    if (!editor || !containerRef.current) return
+    const { from } = editor.state.selection
+    const coords = editor.view.coordsAtPos(from)
+    const containerRect = containerRef.current.getBoundingClientRect()
+    setSlash({
+      open: true,
+      // The "/" character is at `from - 1` after it's typed; we'll track from there.
+      triggerFrom: from - 1,
+      query: "",
+      top: coords.bottom - containerRect.top + 4,
+      left: coords.left - containerRect.left,
+      index: 0,
+    })
+  }, [editor])
+
+  useEffect(() => {
+    if (!editor || compact) return
+    function handleKeydown(e: KeyboardEvent) {
+      if (e.key === "/" && editor) {
+        // Open after the keypress is committed to the doc, so coords are correct.
+        const { $from } = editor.state.selection
+        // Only open if we're at the start of an empty-ish text block.
+        const isEmptyBlock = $from.parent.textContent.length === 0
+        if (isEmptyBlock) {
+          // defer until after the / is inserted
+          setTimeout(() => openSlash(), 0)
+        }
+      }
+    }
+    const dom = editor.view.dom
+    dom.addEventListener("keydown", handleKeydown)
+    return () => {
+      dom.removeEventListener("keydown", handleKeydown)
+    }
+  }, [editor, compact, openSlash])
+
+  // Close slash menu on blur, scroll, or escape.
+  useEffect(() => {
+    if (!slash.open) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        closeSlash()
+      }
+    }
+    function onScroll() {
+      closeSlash()
+    }
+    document.addEventListener("keydown", onKey)
+    document.addEventListener("scroll", onScroll, true)
+    return () => {
+      document.removeEventListener("keydown", onKey)
+      document.removeEventListener("scroll", onScroll, true)
+    }
+  }, [slash.open, closeSlash])
+
+  // --- Reflect controlled `content` updates --------------------------------
+
+  // If parent sends a fresh content prop (e.g. after loading the doc), sync it.
+  useEffect(() => {
+    if (!editor) return
+    const current = editor.getJSON()
+    if (JSON.stringify(current) === JSON.stringify(content)) return
+    if (content) {
+      editor.commands.setContent(content as object | string, false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, content])
+
+  useEffect(() => {
+    if (!editor) return
+    if (editor.isEditable !== editable) editor.setEditable(editable)
+  }, [editor, editable])
+
+  // --- Slash menu state ----------------------------------------------------
+
+  const slashItems = useMemo(
+    () =>
+      makeSlashItems(
+        () => {
+          // Close slash, remove the trigger text, then open the picker.
+          if (editor) {
+            editor
+              .chain()
+              .focus()
+              .deleteRange({
+                from: slash.triggerFrom,
+                to: editor.state.selection.from,
+              })
+              .run()
+          }
+          closeSlash()
+          setLogPickerOpen(true)
+        },
+        () => {
+          if (editor) {
+            editor
+              .chain()
+              .focus()
+              .deleteRange({
+                from: slash.triggerFrom,
+                to: editor.state.selection.from,
+              })
+              .run()
+          }
+          closeSlash()
+          setAssetPickerOpen(true)
+        },
+        () => {
+          if (editor) {
+            editor
+              .chain()
+              .focus()
+              .deleteRange({
+                from: slash.triggerFrom,
+                to: editor.state.selection.from,
+              })
+              .run()
+          }
+          closeSlash()
+          setPpePickerOpen(true)
+        },
+        () => {
+          if (editor) {
+            editor
+              .chain()
+              .focus()
+              .deleteRange({
+                from: slash.triggerFrom,
+                to: editor.state.selection.from,
+              })
+              .run()
+          }
+          closeSlash()
+          setDiagramPickerOpen(true)
+        },
+        (kind) => {
+          if (!editor) return
+          editor
+            .chain()
+            .focus()
+            .deleteRange({
+              from: slash.triggerFrom,
+              to: editor.state.selection.from,
+            })
+            .insertCallout(kind)
+            .run()
+          closeSlash()
+        },
+        () => {
+          if (!editor) return
+          editor
+            .chain()
+            .focus()
+            .deleteRange({
+              from: slash.triggerFrom,
+              to: editor.state.selection.from,
+            })
+            .insertStepList(3)
+            .run()
+          closeSlash()
+        },
+      ),
+    [editor, slash.triggerFrom, closeSlash],
+  )
+
+  const filteredSlashItems = useMemo(() => {
+    const q = slash.query.trim().toLowerCase()
+    if (!q) return slashItems
+    return slashItems.filter((it) =>
+      it.label.toLowerCase().includes(q) || it.key.includes(q),
+    )
+  }, [slashItems, slash.query])
+
+  // Keyboard navigation in slash menu (arrow up/down, Enter).
+  useEffect(() => {
+    if (!slash.open || !editor) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setSlash((s) => ({
+          ...s,
+          index: (s.index + 1) % Math.max(filteredSlashItems.length, 1),
+        }))
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setSlash((s) => ({
+          ...s,
+          index:
+            (s.index - 1 + Math.max(filteredSlashItems.length, 1)) %
+            Math.max(filteredSlashItems.length, 1),
+        }))
+      } else if (e.key === "Enter") {
+        e.preventDefault()
+        const item = filteredSlashItems[slash.index]
+        if (item && editor) {
+          // Remove "/query" before running the action.
+          editor
+            .chain()
+            .focus()
+            .deleteRange({
+              from: slash.triggerFrom,
+              to: editor.state.selection.from,
+            })
+            .run()
+          // For built-in transforms, run after deletion.
+          if (item.key !== "launch-log" && item.key !== "linked-asset") {
+            item.run(editor)
+            closeSlash()
+          } else {
+            // openers handle their own picker open
+            item.run(editor)
+          }
+        }
+      }
+    }
+    document.addEventListener("keydown", onKey, true)
+    return () => document.removeEventListener("keydown", onKey, true)
+  }, [slash.open, slash.index, filteredSlashItems, editor, slash.triggerFrom, closeSlash])
+
+  // --- Custom node insertion handlers --------------------------------------
+
+  function handleInsertLaunchLog(attrs: {
+    logId: string
+    anchorId: string
+    label: string
+  }) {
+    if (!editor) return
+    editor.chain().focus().insertLaunchLog(attrs).run()
+  }
+
+  function handleInsertLinkedAsset(attrs: { assetId: string; label: string }) {
+    if (!editor) return
+    editor.chain().focus().insertLinkedAsset(attrs).run()
+  }
+
+  // --- Toolbar callbacks ---------------------------------------------------
+
+  function setLink() {
+    if (!editor) return
+    const previous = editor.getAttributes("link").href as string | undefined
+    const url = window.prompt("Link URL", previous ?? "https://")
+    if (url === null) return
+    if (url === "") {
+      editor.chain().focus().extendMarkRange("link").unsetLink().run()
+      return
+    }
+    editor
+      .chain()
+      .focus()
+      .extendMarkRange("link")
+      .setLink({ href: url })
+      .run()
+  }
+
+  function insertImage() {
+    if (!editor) return
+    const url = window.prompt("Image URL")
+    if (!url) return
+    editor.chain().focus().setImage({ src: url }).run()
+  }
+
+  function insertTable() {
+    if (!editor) return
+    editor
+      .chain()
+      .focus()
+      .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+      .run()
+  }
+
+  if (!editor) {
+    return <div className="rounded-md border p-4 text-sm text-muted-foreground">Loading editor…</div>
+  }
+
+  // --- Render ---------------------------------------------------------------
+
+  return (
+    <div ref={containerRef} className="relative">
+      {editable && (
+        <div
+          className="sticky z-10 flex flex-wrap items-center gap-0.5 rounded-t-md border border-b-0 bg-background p-1.5"
+          style={{ top: toolbarTopOffset }}
+        >
+          {/* Heading dropdown — combines paragraph + H1/H2/H3 */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 px-2 text-xs font-medium"
+                title="Heading style"
+              >
+                {editor.isActive("heading", { level: 1 }) ? (
+                  <>
+                    <Heading1 className="h-4 w-4" />
+                    H1
+                  </>
+                ) : editor.isActive("heading", { level: 2 }) ? (
+                  <>
+                    <Heading2 className="h-4 w-4" />
+                    H2
+                  </>
+                ) : editor.isActive("heading", { level: 3 }) ? (
+                  <>
+                    <Heading3 className="h-4 w-4" />
+                    H3
+                  </>
+                ) : (
+                  <>
+                    <Type className="h-4 w-4" />
+                    Text
+                  </>
+                )}
+                <ChevronDown className="h-3 w-3 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem
+                onSelect={() => editor.chain().focus().setParagraph().run()}
+              >
+                <Type className="mr-2 h-4 w-4" /> Paragraph
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+              >
+                <Heading1 className="mr-2 h-4 w-4" /> Heading 1
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+              >
+                <Heading2 className="mr-2 h-4 w-4" /> Heading 2
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+              >
+                <Heading3 className="mr-2 h-4 w-4" /> Heading 3
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ToolbarDivider />
+
+          {/* Inline marks — kept visible for prose-heavy authoring */}
+          <ToolbarButton
+            title="Bold"
+            active={editor.isActive("bold")}
+            onClick={() => editor.chain().focus().toggleBold().run()}
+          >
+            <Bold className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            title="Italic"
+            active={editor.isActive("italic")}
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+          >
+            <Italic className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            title="Bullet list"
+            active={editor.isActive("bulletList")}
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+          >
+            <List className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            title="Link"
+            active={editor.isActive("link")}
+            onClick={setLink}
+          >
+            <LinkIcon className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Table" onClick={insertTable}>
+            <TableIcon className="h-4 w-4" />
+          </ToolbarButton>
+
+          {!compact && (
+            <>
+              <ToolbarDivider />
+
+              {/* Safety palette — replaces the old single Callout dropdown */}
+              <SafetyPalette
+                onSelect={(kind) =>
+                  editor.chain().focus().insertCallout(kind).run()
+                }
+              />
+
+              {/* PPE quick palette — replaces the dialog as the toolbar default */}
+              <PpeQuickPalette
+                onInsert={(items: PpeItem[]) =>
+                  editor.chain().focus().insertPpe(items).run()
+                }
+              />
+
+              <ToolbarButton
+                title="Insert linked asset"
+                onClick={() => setAssetPickerOpen(true)}
+              >
+                <Hash className="h-4 w-4 text-emerald-600" />
+              </ToolbarButton>
+
+              <ToolbarButton
+                title="Insert launch-log block"
+                onClick={() => setLogPickerOpen(true)}
+              >
+                <Play className="h-4 w-4 text-sky-600" />
+              </ToolbarButton>
+
+              <ToolbarDivider />
+
+              {/* Overflow — lower-frequency actions live here so the always-
+                  visible row stays under 10 buttons. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1 px-2 text-xs"
+                    title="More tools"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                    More
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem
+                    onSelect={() => editor.chain().focus().toggleStrike().run()}
+                  >
+                    <Strikethrough className="mr-2 h-4 w-4" /> Strikethrough
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => editor.chain().focus().toggleOrderedList().run()}
+                  >
+                    <ListOrdered className="mr-2 h-4 w-4" /> Numbered list
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => editor.chain().focus().toggleBlockquote().run()}
+                  >
+                    <Quote className="mr-2 h-4 w-4" /> Quote
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => editor.chain().focus().toggleCodeBlock().run()}
+                  >
+                    <Code className="mr-2 h-4 w-4" /> Code block
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={insertImage}>
+                    <ImageIcon className="mr-2 h-4 w-4" /> Image
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => editor.chain().focus().setHorizontalRule().run()}
+                  >
+                    <Minus className="mr-2 h-4 w-4" /> Horizontal rule
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => editor.chain().focus().insertStepList(3).run()}
+                  >
+                    <ListChecks className="mr-2 h-4 w-4" /> Numbered steps
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setDiagramPickerOpen(true)}>
+                    <DiagramIcon className="mr-2 h-4 w-4 text-purple-600" /> Diagram
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setPpePickerOpen(true)}>
+                    <HardHat className="mr-2 h-4 w-4 text-orange-600" /> PPE picker (dialog)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
+        </div>
+      )}
+
+      <EditorContent
+        editor={editor}
+        className={cn(
+          "tiptap-content min-h-[300px] rounded-b-md border bg-background px-6 py-5 focus-within:outline-none",
+          !editable && "rounded-md",
+        )}
+      />
+
+      {/* Slash command popup */}
+      {slash.open && filteredSlashItems.length > 0 && (
+        <div
+          className="absolute z-50 w-64 rounded-md border bg-popover p-1 shadow-md"
+          style={{ top: slash.top, left: slash.left }}
+        >
+          <ul className="max-h-64 overflow-auto">
+            {filteredSlashItems.map((item, i) => (
+              <li key={item.key}>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm",
+                    i === slash.index ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+                  )}
+                  onMouseEnter={() =>
+                    setSlash((s) => ({ ...s, index: i }))
+                  }
+                  onClick={() => {
+                    if (!editor) return
+                    editor
+                      .chain()
+                      .focus()
+                      .deleteRange({
+                        from: slash.triggerFrom,
+                        to: editor.state.selection.from,
+                      })
+                      .run()
+                    const opensDialog =
+                      item.key === "launch-log" ||
+                      item.key === "linked-asset" ||
+                      item.key === "ppe" ||
+                      item.key === "diagram"
+                    if (!opensDialog) {
+                      item.run(editor)
+                      closeSlash()
+                    } else {
+                      item.run(editor)
+                    }
+                  }}
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-sm border bg-background">
+                    {item.icon}
+                  </span>
+                  <span className="flex-1">
+                    <div className="font-medium">{item.label}</div>
+                    <div className="text-xs text-muted-foreground">{item.hint}</div>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <LaunchLogPicker
+        open={logPickerOpen}
+        onOpenChange={setLogPickerOpen}
+        onSelect={handleInsertLaunchLog}
+      />
+      <LinkedAssetPicker
+        open={assetPickerOpen}
+        onOpenChange={setAssetPickerOpen}
+        onSelect={handleInsertLinkedAsset}
+      />
+      <PpePicker
+        open={ppePickerOpen}
+        onOpenChange={setPpePickerOpen}
+        onSelect={(items: PpeItem[]) => {
+          if (!editor) return
+          editor.chain().focus().insertPpe(items).run()
+        }}
+      />
+      <DiagramPicker
+        open={diagramPickerOpen}
+        onOpenChange={setDiagramPickerOpen}
+        onSelect={(attrs) => {
+          if (!editor) return
+          editor.chain().focus().insertDiagram(attrs).run()
+        }}
+      />
+    </div>
+  )
+}
