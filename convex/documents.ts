@@ -415,3 +415,53 @@ export const archive = mutation({
     })
   },
 })
+
+export const remove = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+
+    const versions = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id),
+      )
+      .take(500)
+    for (const v of versions) {
+      if (v.pdfStorageId) {
+        try {
+          await ctx.storage.delete(v.pdfStorageId)
+        } catch {
+          // best-effort; orphan file is harmless
+        }
+      }
+      await ctx.db.delete(v._id)
+    }
+
+    const chunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id),
+      )
+      .take(5000)
+    for (const c of chunks) await ctx.db.delete(c._id)
+
+    const links = await ctx.db
+      .query("documentAssets")
+      .withIndex("by_documentId", (q) => q.eq("documentId", args.id))
+      .take(500)
+    for (const l of links) await ctx.db.delete(l._id)
+
+    const logRefs = await ctx.db
+      .query("documentLogRefs")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id),
+      )
+      .take(500)
+    for (const r of logRefs) await ctx.db.delete(r._id)
+
+    await ctx.db.delete(args.id)
+  },
+})

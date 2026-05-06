@@ -16,6 +16,7 @@ import {
   type AssetPreview,
   type DocumentRowAction,
 } from "@/components/docs/DocumentLibraryTable"
+import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
 import type { AssetLog, Doc } from "@/types"
 import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
 import { EditAssetModal } from "@/components/docs/EditAssetModal"
@@ -37,6 +38,9 @@ export function AssetDetailPage() {
   const previewBundle = useQuery(api.documents.listWithAssetPreviews, {})
   const updateAssetMut = useMutation(api.assets.update)
   const archive = useMutation(api.documents.archive)
+  const remove = useMutation(api.documents.remove)
+  const [docToDelete, setDocToDelete] = useState<Doc | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const ready = result !== undefined
 
   const asset = useMemo(
@@ -78,6 +82,36 @@ export function AssetDetailPage() {
         .catch((err) =>
           toast.error(err instanceof Error ? err.message : "Failed to archive"),
         )
+      return
+    }
+    if (action === "delete") {
+      setDocToDelete(doc)
+    }
+  }
+
+  async function handleArchiveFromDialog() {
+    if (!docToDelete) return
+    try {
+      await archive({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Archived ${docToDelete.naming_code}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to archive")
+    } finally {
+      setDocToDelete(null)
+    }
+  }
+
+  async function handleDeleteConfirm() {
+    if (!docToDelete) return
+    setDeleting(true)
+    try {
+      await remove({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Deleted ${docToDelete.naming_code}`)
+      setDocToDelete(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete")
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -263,6 +297,14 @@ export function AssetDetailPage() {
         log={activeLog}
         open={!!activeLog}
         onOpenChange={(o) => !o && setActiveLog(null)}
+      />
+      <DeleteDocumentDialog
+        doc={docToDelete}
+        open={!!docToDelete}
+        onOpenChange={(o) => !o && !deleting && setDocToDelete(null)}
+        onArchive={() => void handleArchiveFromDialog()}
+        onConfirmDelete={() => void handleDeleteConfirm()}
+        busy={deleting}
       />
     </div>
   )

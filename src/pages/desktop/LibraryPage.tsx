@@ -21,6 +21,7 @@ import {
   type AssetPreview,
   type DocumentRowAction,
 } from "@/components/docs/DocumentLibraryTable"
+import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
 import { AskIdaSheet } from "@/components/ai/AskIdaSheet"
 import { toast } from "sonner"
 
@@ -72,6 +73,9 @@ export function LibraryPage() {
 
   const result = useQuery(api.documents.listWithAssetPreviews, queryArgs)
   const archive = useMutation(api.documents.archive)
+  const remove = useMutation(api.documents.remove)
+  const [docToDelete, setDocToDelete] = useState<Doc | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const ready = result !== undefined
   const docs = useMemo(
     () => (result ? result.docs.map(toLegacyDoc) : []),
@@ -104,6 +108,36 @@ export function LibraryPage() {
         .catch((err) =>
           toast.error(err instanceof Error ? err.message : "Failed to archive"),
         )
+      return
+    }
+    if (action === "delete") {
+      setDocToDelete(doc)
+    }
+  }
+
+  async function handleArchiveFromDialog() {
+    if (!docToDelete) return
+    try {
+      await archive({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Archived ${docToDelete.naming_code}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to archive")
+    } finally {
+      setDocToDelete(null)
+    }
+  }
+
+  async function handleDeleteConfirm() {
+    if (!docToDelete) return
+    setDeleting(true)
+    try {
+      await remove({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Deleted ${docToDelete.naming_code}`)
+      setDocToDelete(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete")
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -219,6 +253,15 @@ export function LibraryPage() {
           />
         )}
       </div>
+
+      <DeleteDocumentDialog
+        doc={docToDelete}
+        open={!!docToDelete}
+        onOpenChange={(o) => !o && !deleting && setDocToDelete(null)}
+        onArchive={() => void handleArchiveFromDialog()}
+        onConfirmDelete={() => void handleDeleteConfirm()}
+        busy={deleting}
+      />
     </div>
   )
 }

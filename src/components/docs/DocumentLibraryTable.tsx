@@ -7,6 +7,7 @@ import {
   FileText,
   MoreHorizontal,
   QrCode,
+  Trash2,
 } from "lucide-react"
 import {
   Table,
@@ -40,7 +41,12 @@ export interface AssetPreview {
   name: string
 }
 
-export type DocumentRowAction = "open" | "duplicate" | "archive" | "copy-id"
+export type DocumentRowAction =
+  | "open"
+  | "duplicate"
+  | "archive"
+  | "copy-id"
+  | "delete"
 
 interface DocumentLibraryTableProps {
   docs: Doc[]
@@ -249,10 +255,16 @@ function RowActionsMenu({
         <DropdownMenuItem
           onSelect={() => onAction?.("archive", doc)}
           disabled={doc.status === "archived"}
-          className="text-destructive focus:text-destructive"
         >
           <Archive className="mr-2 h-4 w-4" />
           Archive
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => onAction?.("delete", doc)}
+          className="text-destructive focus:text-destructive"
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete permanently
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
