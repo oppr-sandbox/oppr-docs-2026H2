@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
+import { internal } from "./_generated/api"
 import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
 
@@ -249,6 +250,10 @@ export const create = mutation({
       })
     }
 
+    await ctx.scheduler.runAfter(0, internal.ai.embed.embedMissingInternal, {
+      documentId: docId,
+    })
+
     return docId
   },
 })
@@ -327,6 +332,10 @@ export const savePublish = mutation({
         })
       }
     }
+
+    await ctx.scheduler.runAfter(0, internal.ai.embed.embedMissingInternal, {
+      documentId: args.id,
+    })
 
     return { version: nextVersion }
   },

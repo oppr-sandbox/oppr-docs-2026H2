@@ -46,3 +46,34 @@ export function toLegacyAssetLog(l: ConvexDoc<"assetLogs">): AssetLog {
     description: l.description,
   }
 }
+
+import type { Citation, QaMessage } from "@/types"
+
+export function toLegacyCitation(c: {
+  documentId: string
+  documentTitle: string
+  chunkId: string
+  pageOrSection: string | null
+  excerpt: string
+  origin: "asset-link" | "cross-link" | "log"
+}): Citation {
+  return {
+    document_id: c.documentId,
+    document_title: c.documentTitle,
+    chunk_id: c.chunkId,
+    page_or_section: c.pageOrSection,
+    excerpt: c.excerpt,
+    origin: c.origin,
+  }
+}
+
+export function toLegacyQaMessage(m: ConvexDoc<"qaMessages">): QaMessage {
+  return {
+    id: m._id,
+    session_id: m.sessionId,
+    role: m.role,
+    text: m.text,
+    citations: m.citations ? m.citations.map(toLegacyCitation) : null,
+    created_at: new Date(m._creationTime).toISOString(),
+  }
+}

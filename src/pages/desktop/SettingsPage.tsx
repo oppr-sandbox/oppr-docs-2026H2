@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { useTheme } from "next-themes"
-import { useMutation, useQuery } from "convex/react"
+import { useAction, useMutation, useQuery } from "convex/react"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { api } from "../../../convex/_generated/api"
 import { useDb } from "@/db/DbProvider"
@@ -51,7 +51,41 @@ export function SettingsPage() {
   const { signOut } = useAuthActions()
   const seedStatus = useQuery(api.seed.status)
   const runSeed = useMutation(api.seed.seedDemoData)
+  const embedMissingAction = useAction(api.ai.embed.embedMissing)
+  const reembedAllAction = useAction(api.ai.embed.reembedAll)
   const [seeding, setSeeding] = useState(false)
+  const [convexEmbedding, setConvexEmbedding] = useState(false)
+
+  async function handleConvexEmbed(reembed: boolean) {
+    setConvexEmbedding(true)
+    const toastId = toast.loading(
+      reembed ? "Clearing + re-embedding all chunks…" : "Embedding chunks…",
+    )
+    try {
+      const result = reembed
+        ? await reembedAllAction({})
+        : await embedMissingAction({})
+      if ("cleared" in result) {
+        toast.success(
+          `Cleared ${result.cleared}, re-embedded ${result.embedded}/${result.total}`,
+          { id: toastId },
+        )
+      } else if (result.total === 0) {
+        toast.success("All chunks already embedded.", { id: toastId })
+      } else {
+        toast.success(
+          `Embedded ${result.embedded}/${result.total} chunks`,
+          { id: toastId },
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), {
+        id: toastId,
+      })
+    } finally {
+      setConvexEmbedding(false)
+    }
+  }
 
   async function handleConvexSeed() {
     setSeeding(true)
@@ -480,6 +514,50 @@ export function SettingsPage() {
             variant="outline"
             onClick={handleReembedAll}
             disabled={embedding}
+          >
+            Re-embed all (clear + rebuild)
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Convex AI</CardTitle>
+          <CardDescription>
+            Server-side embeddings + retrieval. Embedding runs automatically on
+            document publish; use these buttons for the seed corpus or after a
+            schema change.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleConvexEmbed(false)}
+            disabled={convexEmbedding}
+          >
+            {convexEmbedding ? (
+              <>
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                Working…
+              </>
+            ) : (
+              "Embed missing chunks"
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (
+                !confirm(
+                  "Clear every chunk embedding and re-embed from scratch using the current model? May take ~30 seconds.",
+                )
+              )
+                return
+              void handleConvexEmbed(true)
+            }}
+            disabled={convexEmbedding}
           >
             Re-embed all (clear + rebuild)
           </Button>
