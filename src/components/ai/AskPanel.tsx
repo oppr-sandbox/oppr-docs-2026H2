@@ -27,11 +27,13 @@ import {
   MicOff,
   RefreshCw,
   Send,
+  Square,
   Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Asset, AssetLog, Citation, Doc, QaMessage } from "@/types"
-import { useAction, useMutation, useQuery } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
+import { useAuthToken } from "@convex-dev/auth/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import {
@@ -103,9 +105,12 @@ export function AskPanel({
   const [clearOpen, setClearOpen] = useState(false)
   const [input, setInput] = useState("")
   const [pending, setPending] = useState(false)
+  const [streamingText, setStreamingText] = useState("")
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const authToken = useAuthToken()
 
   const scopeKindArg = scope.kind
   const scopeIdArg = scope.kind === "library" ? "library" : scope.id
@@ -130,18 +135,20 @@ export function AskPanel({
   const addMessage = useMutation(api.qa.addMessage)
   const deleteMessages = useMutation(api.qa.deleteMessages)
   const popLastTurn = useMutation(api.qa.popLastTurn)
-  const askQuestionAction = useAction(api.ai.ask.askQuestion)
 
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages, pending])
+  }, [messages, pending, streamingText])
 
   function handleScopeChange(next: AskPanelScope) {
     if (next.kind === scope.kind) {
       if (next.kind === "library") return
       if ("id" in next && "id" in scope && next.id === scope.id) return
     }
+    abortRef.current?.abort()
+    abortRef.current = null
+    setStreamingText("")
     setPending(false)
     setScope(next)
     onScopeChange?.(next)
@@ -149,6 +156,9 @@ export function AskPanel({
 
   function handleClearChat() {
     if (!sessionId || messages.length === 0) {
+      abortRef.current?.abort()
+      abortRef.current = null
+      setStreamingText("")
       setPending(false)
       return
     }
@@ -165,8 +175,15 @@ export function AskPanel({
         )
       }
     }
+    abortRef.current?.abort()
+    abortRef.current = null
+    setStreamingText("")
     setPending(false)
     setClearOpen(false)
+  }
+
+  function handleStop() {
+    abortRef.current?.abort()
   }
 
   // Default citation handler — navigate to the doc with optional page deep
@@ -197,9 +214,24 @@ export function AskPanel({
 
   async function send(question: string) {
     if (!question.trim() || pending) return
+    if (!authToken) {
+      toast.error("Not signed in.")
+      return
+    }
+    const siteUrl = import.meta.env.VITE_CONVEX_SITE_URL as
+      | string
+      | undefined
+    if (!siteUrl) {
+      toast.error("VITE_CONVEX_SITE_URL is not configured.")
+      return
+    }
 
     setInput("")
     setPending(true)
+    setStreamingText("")
+
+    const ac = new AbortController()
+    abortRef.current = ac
 
     let activeSessionId: Id<"qaSessions">
     try {
@@ -222,35 +254,94 @@ export function AskPanel({
       })
 
       const history = messages.map((m) => ({ role: m.role, text: m.text }))
-
-      const askArgs =
+      const askScope =
         scope.kind === "library"
           ? { kind: "library" as const }
           : scope.kind === "doc"
-            ? { kind: "doc" as const, id: scope.id as Id<"documents"> }
-            : { kind: "asset" as const, id: scope.id as Id<"assets"> }
+            ? { kind: "doc" as const, id: scope.id }
+            : { kind: "asset" as const, id: scope.id }
 
-      const result = await askQuestionAction({
-        scope: askArgs,
-        question,
-        history,
+      const res = await fetch(`${siteUrl}/ai/askStream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ scope: askScope, question, history }),
+        signal: ac.signal,
       })
+      if (!res.ok || !res.body) {
+        const body = await res.text().catch(() => "")
+        throw new Error(`Stream failed: ${res.status} ${body.slice(0, 200)}`)
+      }
 
-      const citationsForStorage = result.citations.map((c) => ({
-        documentId: c.documentId as Id<"documents">,
-        documentTitle: c.documentTitle,
-        chunkId: c.chunkId as Id<"chunks">,
-        pageOrSection: c.pageOrSection,
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+      let accumulated = ""
+      let finalCitations: Citation[] | null = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        let nl: number
+        while ((nl = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, nl).trim()
+          buffer = buffer.slice(nl + 1)
+          if (!line) continue
+          let event: { type: string; text?: string; citations?: unknown[]; message?: string }
+          try {
+            event = JSON.parse(line)
+          } catch {
+            continue
+          }
+          if (event.type === "delta" && typeof event.text === "string") {
+            accumulated += event.text
+            setStreamingText(accumulated)
+          } else if (event.type === "done") {
+            const raw = (event.citations ?? []) as Array<{
+              documentId: string
+              documentTitle: string
+              chunkId: string
+              pageOrSection: string | null
+              excerpt: string
+              origin: "asset-link" | "cross-link" | "log"
+            }>
+            finalCitations = raw.map(toLegacyCitation)
+          } else if (event.type === "error") {
+            throw new Error(event.message ?? "Stream error")
+          }
+        }
+      }
+
+      const stopped = ac.signal.aborted
+      if (!accumulated && stopped) {
+        setStreamingText("")
+        return
+      }
+
+      const text = accumulated || "(no response)"
+      const citationsForStorage = (finalCitations ?? []).map((c) => ({
+        documentId: c.document_id as Id<"documents">,
+        documentTitle: c.document_title,
+        chunkId: c.chunk_id as Id<"chunks">,
+        pageOrSection: c.page_or_section,
         excerpt: c.excerpt,
         origin: c.origin,
       }))
       await addMessage({
         sessionId: activeSessionId,
         role: "assistant",
-        text: result.text,
-        citations: citationsForStorage,
+        text,
+        citations: citationsForStorage.length ? citationsForStorage : null,
       })
+      setStreamingText("")
     } catch (err) {
+      if (ac.signal.aborted) {
+        setStreamingText("")
+        return
+      }
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(`Q&A failed: ${msg}`)
       try {
@@ -263,8 +354,10 @@ export function AskPanel({
       } catch {
         // best-effort
       }
+      setStreamingText("")
     } finally {
       setPending(false)
+      if (abortRef.current === ac) abortRef.current = null
     }
   }
 
@@ -338,12 +431,26 @@ export function AskPanel({
           // already stopped
         }
       }
+      abortRef.current?.abort()
     }
   }, [])
 
   // ----------------------------------------------------------------------
 
-  const visibleMessages = messages
+  const visibleMessages = useMemo<QaMessage[]>(() => {
+    if (!streamingText) return messages
+    return [
+      ...messages,
+      {
+        id: "__streaming__",
+        session_id: sessionId ?? "",
+        role: "assistant" as const,
+        text: streamingText,
+        citations: null,
+        created_at: new Date().toISOString(),
+      },
+    ]
+  }, [messages, sessionId, streamingText])
 
   return (
     <div
@@ -397,7 +504,7 @@ export function AskPanel({
             message={m}
             scope={scope}
             isLast={i === visibleMessages.length - 1}
-            streaming={false}
+            streaming={m.id === "__streaming__"}
             onCitationOpen={handleCitationOpen}
             onCitationAnchor={(n) => scrollToCitation(m.id, n)}
             onCodeNavigate={(entry) => {
@@ -441,7 +548,7 @@ export function AskPanel({
             pending={pending}
           />
         ))}
-        {pending && (
+        {pending && !streamingText && (
           <div className="text-xs italic text-muted-foreground">Thinking…</div>
         )}
       </div>
@@ -473,15 +580,27 @@ export function AskPanel({
             >
               {listening ? <MicOff /> : <Mic />}
             </Button>
-            <Button
-              type="button"
-              size="icon"
-              onClick={() => void send(input)}
-              disabled={!input.trim() || pending}
-              aria-label="Send"
-            >
-              <Send />
-            </Button>
+            {pending ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="destructive"
+                onClick={handleStop}
+                aria-label="Stop generating"
+              >
+                <Square />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="icon"
+                onClick={() => void send(input)}
+                disabled={!input.trim()}
+                aria-label="Send"
+              >
+                <Send />
+              </Button>
+            )}
           </div>
         </div>
       </div>

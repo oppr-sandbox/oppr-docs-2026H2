@@ -1,5 +1,10 @@
 import { v } from "convex/values"
-import { action, internalQuery } from "../_generated/server"
+import {
+  action,
+  ActionCtx,
+  httpAction,
+  internalQuery,
+} from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Doc, Id } from "../_generated/dataModel"
 import { requireUser } from "../lib/auth"
@@ -228,6 +233,152 @@ export const buildScopeOverview = internalQuery({
   },
 })
 
+interface AskInput {
+  scope: AskScope
+  question: string
+  history: { role: "user" | "assistant"; text: string }[]
+}
+
+interface PreparedAsk {
+  contents: { role: string; parts: { text: string }[] }[]
+  citations: CitationOut[]
+}
+
+async function prepareAskContext(
+  ctx: ActionCtx,
+  args: AskInput,
+  apiKey: string,
+): Promise<PreparedAsk> {
+  const queryVec = await embedQuery(args.question, apiKey)
+
+  const k = topKForScope(args.scope)
+  const overFetch = args.scope.kind === "library" ? 12 : 30
+  const docScopeId = args.scope.kind === "doc" ? args.scope.id : null
+  const vectorResults = docScopeId
+    ? await ctx.vectorSearch("chunks", "by_embedding", {
+        vector: queryVec,
+        limit: overFetch,
+        filter: (q) => q.eq("documentId", docScopeId),
+      })
+    : await ctx.vectorSearch("chunks", "by_embedding", {
+        vector: queryVec,
+        limit: overFetch,
+      })
+
+  const ranked = vectorResults.slice(0, overFetch)
+  const looked: {
+    chunkId: Id<"chunks">
+    documentId: Id<"documents">
+    text: string
+    pageOrSection: string | null
+    documentTitle: string
+    documentNamingCode: string
+  }[] = await ctx.runQuery(internal.ai.ask.lookupAfterSearch, {
+    chunkIds: ranked.map((r) => r._id),
+    scope: args.scope,
+  })
+
+  const scoreById = new Map(ranked.map((r) => [String(r._id), r._score]))
+  const candidates: RetrievedChunk[] = looked.map((c) => ({
+    _id: c.chunkId,
+    documentId: c.documentId,
+    text: c.text,
+    pageOrSection: c.pageOrSection,
+    score: scoreById.get(String(c.chunkId)) ?? 0,
+  }))
+  candidates.sort((a, b) => b.score - a.score)
+  const top = candidates.slice(0, k)
+  const lookedById = new Map(looked.map((c) => [String(c.chunkId), c]))
+
+  const includeOverview = shouldIncludeScopeOverview(args.scope, args.question)
+  const overviewText: string | null = includeOverview
+    ? await ctx.runQuery(internal.ai.ask.buildScopeOverview, {
+        scope: args.scope,
+      })
+    : null
+
+  let contextBlock = "(no excerpts available)"
+  if (top.length) {
+    contextBlock = top
+      .map((c, i) => {
+        const meta = lookedById.get(String(c._id))!
+        const section = cleanSection(
+          c.pageOrSection,
+          meta.documentTitle,
+          meta.documentNamingCode,
+        )
+        const loc = section ? ` — ${section}` : ""
+        const header = meta.documentNamingCode
+          ? `${meta.documentNamingCode} · ${meta.documentTitle}${loc}`
+          : `${meta.documentTitle}${loc}`
+        return `[${i + 1}] ${header}\n${c.text}`
+      })
+      .join("\n\n")
+  }
+
+  const promptParts: string[] = []
+  if (overviewText) {
+    promptParts.push(`SCOPE OVERVIEW:\n${overviewText}`, "")
+  }
+  promptParts.push(
+    `EXCERPTS:\n${contextBlock}`,
+    "",
+    `QUESTION: ${args.question}`,
+    "",
+    "Answer the question directly. Cite specifics with [1], [2], etc. Do not summarize what's available — just answer.",
+  )
+  const userPrompt = promptParts.join("\n")
+
+  const cleanHistory = args.history.filter((m) => {
+    if (m.role !== "assistant") return true
+    const t = m.text.trim()
+    if (!t || t === "(stopped)" || t === "(no response)") return false
+    if (t.startsWith("Error:")) return false
+    return true
+  })
+  const trimmed = cleanHistory.slice(-6)
+
+  const contents = [
+    ...trimmed.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.text }],
+    })),
+    { role: "user", parts: [{ text: userPrompt }] },
+  ]
+
+  let assetLinkedDocIds: Set<string> | null = null
+  if (args.scope.kind === "asset") {
+    const assetId = args.scope.id
+    const tmp: { _id: Id<"documents"> }[] = await ctx.runQuery(
+      internal.ai.ask.lookupAssetDocs,
+      { assetId },
+    )
+    assetLinkedDocIds = new Set(tmp.map((d) => String(d._id)))
+  }
+
+  const citations: CitationOut[] = top.map((c) => {
+    const meta = lookedById.get(String(c._id))!
+    let origin: CitationOut["origin"] = "asset-link"
+    if (assetLinkedDocIds && !assetLinkedDocIds.has(String(c.documentId))) {
+      origin = "cross-link"
+    }
+    return {
+      documentId: String(c.documentId),
+      documentTitle: meta.documentTitle,
+      chunkId: String(c._id),
+      pageOrSection: cleanSection(
+        c.pageOrSection,
+        meta.documentTitle,
+        meta.documentNamingCode,
+      ),
+      excerpt: c.text.length > 320 ? `${c.text.slice(0, 320)}…` : c.text,
+      origin,
+    }
+  })
+
+  return { contents, citations }
+}
+
 export const askQuestion = action({
   args: {
     scope: v.union(
@@ -251,103 +402,7 @@ export const askQuestion = action({
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment")
 
-    const queryVec = await embedQuery(args.question, apiKey)
-
-    const k = topKForScope(args.scope)
-    const overFetch = args.scope.kind === "library" ? 12 : 30
-    const docScopeId =
-      args.scope.kind === "doc" ? args.scope.id : null
-    const vectorResults = docScopeId
-      ? await ctx.vectorSearch("chunks", "by_embedding", {
-          vector: queryVec,
-          limit: overFetch,
-          filter: (q) => q.eq("documentId", docScopeId),
-        })
-      : await ctx.vectorSearch("chunks", "by_embedding", {
-          vector: queryVec,
-          limit: overFetch,
-        })
-
-    const ranked = vectorResults.slice(0, overFetch)
-    const looked: {
-      chunkId: Id<"chunks">
-      documentId: Id<"documents">
-      text: string
-      pageOrSection: string | null
-      documentTitle: string
-      documentNamingCode: string
-    }[] = await ctx.runQuery(internal.ai.ask.lookupAfterSearch, {
-      chunkIds: ranked.map((r) => r._id),
-      scope: args.scope,
-    })
-
-    const scoreById = new Map(ranked.map((r) => [String(r._id), r._score]))
-    const candidates: RetrievedChunk[] = looked.map((c) => ({
-      _id: c.chunkId,
-      documentId: c.documentId,
-      text: c.text,
-      pageOrSection: c.pageOrSection,
-      score: scoreById.get(String(c.chunkId)) ?? 0,
-    }))
-    candidates.sort((a, b) => b.score - a.score)
-    const top = candidates.slice(0, k)
-    const lookedById = new Map(looked.map((c) => [String(c.chunkId), c]))
-
-    const includeOverview = shouldIncludeScopeOverview(args.scope, args.question)
-    const overviewText: string | null = includeOverview
-      ? await ctx.runQuery(internal.ai.ask.buildScopeOverview, {
-          scope: args.scope,
-        })
-      : null
-
-    let contextBlock = "(no excerpts available)"
-    if (top.length) {
-      contextBlock = top
-        .map((c, i) => {
-          const meta = lookedById.get(String(c._id))!
-          const section = cleanSection(
-            c.pageOrSection,
-            meta.documentTitle,
-            meta.documentNamingCode,
-          )
-          const loc = section ? ` — ${section}` : ""
-          const header = meta.documentNamingCode
-            ? `${meta.documentNamingCode} · ${meta.documentTitle}${loc}`
-            : `${meta.documentTitle}${loc}`
-          return `[${i + 1}] ${header}\n${c.text}`
-        })
-        .join("\n\n")
-    }
-
-    const promptParts: string[] = []
-    if (overviewText) {
-      promptParts.push(`SCOPE OVERVIEW:\n${overviewText}`, "")
-    }
-    promptParts.push(
-      `EXCERPTS:\n${contextBlock}`,
-      "",
-      `QUESTION: ${args.question}`,
-      "",
-      "Answer the question directly. Cite specifics with [1], [2], etc. Do not summarize what's available — just answer.",
-    )
-    const userPrompt = promptParts.join("\n")
-
-    const cleanHistory = args.history.filter((m) => {
-      if (m.role !== "assistant") return true
-      const t = m.text.trim()
-      if (!t || t === "(stopped)" || t === "(no response)") return false
-      if (t.startsWith("Error:")) return false
-      return true
-    })
-    const trimmed = cleanHistory.slice(-6)
-
-    const contents = [
-      ...trimmed.map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.text }],
-      })),
-      { role: "user", parts: [{ text: userPrompt }] },
-    ]
+    const { contents, citations } = await prepareAskContext(ctx, args, apiKey)
 
     const url = `${GEMINI_BASE}/models/${CHAT_MODEL}:generateContent?key=${apiKey}`
     const res = await fetch(url, {
@@ -355,9 +410,7 @@ export const askQuestion = action({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents,
-        systemInstruction: {
-          parts: [{ text: SYSTEM_INSTRUCTION }],
-        },
+        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
       }),
     })
     if (!res.ok) {
@@ -372,39 +425,6 @@ export const askQuestion = action({
         ?.map((p) => p.text ?? "")
         .join("") ?? ""
 
-    let assetLinkedDocIds: Set<string> | null = null
-    if (args.scope.kind === "asset") {
-      const assetId = args.scope.id
-      const tmp: { _id: Id<"documents"> }[] = await ctx.runQuery(
-        internal.ai.ask.lookupAssetDocs,
-        { assetId },
-      )
-      assetLinkedDocIds = new Set(tmp.map((d) => String(d._id)))
-    }
-
-    const citations: CitationOut[] = top.map((c) => {
-      const meta = lookedById.get(String(c._id))!
-      let origin: CitationOut["origin"] = "asset-link"
-      if (
-        assetLinkedDocIds &&
-        !assetLinkedDocIds.has(String(c.documentId))
-      ) {
-        origin = "cross-link"
-      }
-      return {
-        documentId: String(c.documentId),
-        documentTitle: meta.documentTitle,
-        chunkId: String(c._id),
-        pageOrSection: cleanSection(
-          c.pageOrSection,
-          meta.documentTitle,
-          meta.documentNamingCode,
-        ),
-        excerpt: c.text.length > 320 ? `${c.text.slice(0, 320)}…` : c.text,
-        origin,
-      }
-    })
-
     return { text: text || "(no response)", citations }
   },
 })
@@ -418,4 +438,167 @@ export const lookupAssetDocs = internalQuery({
       .take(500)
     return links.map((l) => ({ _id: l.documentId }))
   },
+})
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  const allow = origin && origin !== "null" ? origin : "*"
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    Vary: "Origin",
+  }
+}
+
+export const askStreamOptions = httpAction(async (_ctx, req) => {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(req.headers.get("Origin")),
+  })
+})
+
+interface StreamRequestBody {
+  scope: AskScope
+  question: string
+  history: { role: "user" | "assistant"; text: string }[]
+}
+
+export const askStream = httpAction(async (ctx, req) => {
+  const cors = corsHeaders(req.headers.get("Origin"))
+
+  const identity = await ctx.auth.getUserIdentity()
+  if (!identity) {
+    return new Response(JSON.stringify({ error: "Not authenticated" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json", ...cors },
+    })
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    return new Response(
+      JSON.stringify({ error: "GEMINI_API_KEY not set on deployment" }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json", ...cors },
+      },
+    )
+  }
+
+  let payload: StreamRequestBody
+  try {
+    payload = (await req.json()) as StreamRequestBody
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json", ...cors },
+    })
+  }
+
+  let prepared: PreparedAsk
+  try {
+    prepared = await prepareAskContext(ctx, payload, apiKey)
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json", ...cors },
+      },
+    )
+  }
+
+  const geminiUrl = `${GEMINI_BASE}/models/${CHAT_MODEL}:streamGenerateContent?alt=sse&key=${apiKey}`
+  const upstream = await fetch(geminiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: prepared.contents,
+      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+    }),
+  })
+  if (!upstream.ok || !upstream.body) {
+    const body = await upstream.text().catch(() => "")
+    return new Response(
+      JSON.stringify({
+        error: `Gemini stream ${upstream.status}: ${body.slice(0, 300)}`,
+      }),
+      {
+        status: 502,
+        headers: { "Content-Type": "application/json", ...cors },
+      },
+    )
+  }
+
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const writeEvent = (obj: unknown) => {
+        controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"))
+      }
+
+      const reader = upstream.body!.getReader()
+      let buffer = ""
+      let anyText = false
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          let idx: number
+          while ((idx = buffer.indexOf("\n\n")) !== -1) {
+            const eventBlock = buffer.slice(0, idx)
+            buffer = buffer.slice(idx + 2)
+            for (const line of eventBlock.split("\n")) {
+              if (!line.startsWith("data:")) continue
+              const json = line.slice(5).trim()
+              if (!json || json === "[DONE]") continue
+              try {
+                const parsed = JSON.parse(json) as {
+                  candidates?: {
+                    content?: { parts?: { text?: string }[] }
+                  }[]
+                }
+                const delta =
+                  parsed.candidates?.[0]?.content?.parts
+                    ?.map((p) => p.text ?? "")
+                    .join("") ?? ""
+                if (delta) {
+                  anyText = true
+                  writeEvent({ type: "delta", text: delta })
+                }
+              } catch {
+                // skip malformed event
+              }
+            }
+          }
+        }
+        if (!anyText) {
+          writeEvent({ type: "delta", text: "(no response)" })
+        }
+        writeEvent({ type: "done", citations: prepared.citations })
+      } catch (err) {
+        writeEvent({
+          type: "error",
+          message: err instanceof Error ? err.message : String(err),
+        })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache",
+      ...cors,
+    },
+  })
 })
