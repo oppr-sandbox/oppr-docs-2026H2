@@ -8,7 +8,7 @@
 // and a thin `validateMetadata()` helper. Pages use `validateMetadata` before
 // submit; the panel itself surfaces inline errors as the user edits.
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { z } from "zod"
 import type { DocumentType } from "@/types"
 import { Input } from "@/components/ui/input"
@@ -21,7 +21,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useDb, useDbWatcher, getUser } from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
 import { AssetMultiSelect } from "./AssetMultiSelect"
 import { NamingCodeField } from "./NamingCodeField"
 import { X } from "lucide-react"
@@ -38,7 +39,7 @@ export interface MetadataValue {
 export const metadataSchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(200),
   type: z.enum(["sop", "manual", "work_instruction", "lmra"]),
-  ownerId: z.string().min(1, "Owner is required"),
+  ownerId: z.string().default(""),
   tags: z.array(z.string().trim().min(1)).default([]),
   assetIds: z.array(z.string().min(1)).default([]),
   namingCode: z
@@ -91,13 +92,7 @@ export function MetadataPanel({
   ignoreId,
   errors = {},
 }: MetadataPanelProps) {
-  const { db } = useDb()
-  const watcher = useDbWatcher()
-
-  const owner = useMemo(
-    () => (db && value.ownerId ? getUser(db, value.ownerId) : null),
-    [db, value.ownerId, watcher],
-  )
+  const me = useQuery(api.users.me)
 
   const [tagDraft, setTagDraft] = useState("")
 
@@ -173,15 +168,15 @@ export function MetadataPanel({
       <div className="space-y-1.5">
         <Label className="text-xs font-medium">Owner</Label>
         <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-          {owner ? (
+          {me ? (
             <div className="flex items-center justify-between">
-              <span>{owner.name}</span>
+              <span>{me.name ?? me.email ?? "You"}</span>
               <span className="text-xs uppercase text-muted-foreground">
-                {owner.role}
+                signed in
               </span>
             </div>
           ) : (
-            <span className="text-muted-foreground">Unknown</span>
+            <span className="text-muted-foreground">…</span>
           )}
         </div>
       </div>
