@@ -1,20 +1,17 @@
 import { useMemo } from "react"
 import { useLocation } from "wouter"
-import { useDb, useDbWatcher, listAssets } from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import { toLegacyAsset } from "@/lib/convex-adapters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MobileHeader } from "@/components/mobile/MobileHeader"
 import { QrScanCard } from "@/components/mobile/QrScanCard"
 
 export function MobileScanPage() {
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
-
-  const assets = useMemo(
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    () => (db ? listAssets(db) : []),
-    [db, watcher],
-  )
+  const raw = useQuery(api.assets.list)
+  const ready = raw !== undefined
+  const assets = useMemo(() => (raw ? raw.map(toLegacyAsset) : []), [raw])
 
   return (
     <div className="flex flex-col">

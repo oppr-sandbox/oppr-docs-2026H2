@@ -6,12 +6,9 @@
 import { useMemo, useState } from "react"
 import { Link, useLocation } from "wouter"
 import { Map as MapIcon, Search } from "lucide-react"
-import {
-  useDb,
-  useDbWatcher,
-  listAssets,
-  listAllAssetLogs,
-} from "@/db"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import { toLegacyAsset } from "@/lib/convex-adapters"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MobileHeader } from "@/components/mobile/MobileHeader"
@@ -21,42 +18,36 @@ import { MobileGlobalSearch } from "@/components/mobile/MobileGlobalSearch"
 import { usePinned } from "@/components/mobile/use-mobile-prefs"
 
 export function MobileAssetsPage() {
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
   const { isPinned, togglePin } = usePinned()
   const [query, setQuery] = useState("")
   const [globalOpen, setGlobalOpen] = useState(false)
 
+  const result = useQuery(api.assets.listForAssetsPage)
+  const ready = result !== undefined
+
   const assets = useMemo(
-    () => (db ? listAssets(db) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher],
+    () => (result ? result.assets.map(toLegacyAsset) : []),
+    [result],
   )
 
-  const logsByAsset = useMemo(
-    () => (db ? listAllAssetLogs(db) : new Map<string, unknown[]>()),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, watcher],
-  )
+  const logCounts = useMemo(() => {
+    const map = new Map<string, number>()
+    if (!result) return map
+    for (const [k, v] of Object.entries(result.logsByAsset)) {
+      map.set(k, v.length)
+    }
+    return map
+  }, [result])
 
   const docsByAsset = useMemo(() => {
     const map = new Map<string, number>()
-    if (!db) return map
-    const stmt = db.prepare(
-      `SELECT asset_id, COUNT(*) AS n FROM document_assets GROUP BY asset_id`,
-    )
-    try {
-      while (stmt.step()) {
-        const r = stmt.getAsObject() as { asset_id: string; n: number }
-        map.set(r.asset_id, r.n)
-      }
-    } finally {
-      stmt.free()
+    if (!result) return map
+    for (const [k, v] of Object.entries(result.docsByAsset)) {
+      map.set(k, v.length)
     }
     return map
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, watcher])
+  }, [result])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -124,7 +115,7 @@ export function MobileAssetsPage() {
                 key={asset.id}
                 asset={asset}
                 docCount={docsByAsset.get(asset.id) ?? 0}
-                logCount={(logsByAsset.get(asset.id) ?? []).length}
+                logCount={logCounts.get(asset.id) ?? 0}
                 onClick={() => navigate(`/m/assets/${asset.id}`)}
                 pinned={isPinned("asset", asset.id)}
                 onTogglePin={() =>

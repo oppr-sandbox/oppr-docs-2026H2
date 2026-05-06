@@ -42,15 +42,15 @@ const USER_ENGINEER = "user-engineer"
 const USER_OPERATOR = "user-operator"
 const USER_MANAGER = "user-manager"
 
-const SITE = "HOL"
+export const SITE = "HOL"
 
-const T_CREATED = "2026-01-15T08:00:00.000Z"
-const T_UPDATED = "2026-04-22T14:30:00.000Z"
-const T_PUBLISHED = "2026-04-22T14:30:00.000Z"
+export const T_CREATED = "2026-01-15T08:00:00.000Z"
+export const T_UPDATED = "2026-04-22T14:30:00.000Z"
+export const T_PUBLISHED = "2026-04-22T14:30:00.000Z"
 
 // --- Asset definitions ------------------------------------------------------
 
-interface AssetSeed {
+export interface AssetSeed {
   id: string
   code: string
   name: string
@@ -70,7 +70,7 @@ interface AssetSeed {
 
 const FLOORPLAN_PIGMENT = "Pigment Calcination Floorplan"
 
-const ASSETS: AssetSeed[] = [
+export const ASSETS: AssetSeed[] = [
   {
     id: "asset-extruder-8c",
     code: "RMR-101",
@@ -217,13 +217,13 @@ const ASSETS: AssetSeed[] = [
 
 // --- Log definitions --------------------------------------------------------
 
-interface LogSeed {
+export interface LogSeed {
   id: string
   name: string
   type: string
 }
 
-const LOGS: LogSeed[] = [
+export const LOGS: LogSeed[] = [
   { id: "log-quality-extruder", name: "Quality check — Mixer", type: "quality" },
   { id: "log-override-sorter", name: "Press reject capture", type: "override" },
   { id: "log-handover-daily", name: "Daily handover", type: "handover" },
@@ -232,7 +232,7 @@ const LOGS: LogSeed[] = [
 
 // --- Document seeds ---------------------------------------------------------
 
-interface DocSeed {
+export interface DocSeed {
   id: string
   naming_code: string
   title: string
@@ -246,7 +246,7 @@ interface DocSeed {
   asset_ids: string[]
 }
 
-const DOCUMENTS: DocSeed[] = [
+export const DOCUMENTS: DocSeed[] = [
   {
     id: "doc-1",
     naming_code: "HOL-OPS-SOP-0001",
@@ -406,12 +406,12 @@ const DOCUMENTS: DocSeed[] = [
 // one chunk per row; callouts and step lists recurse into their children;
 // atom blocks (ppe / diagram / launchLog) are skipped (no useful prose).
 
-interface ParaChunk {
+export interface ParaChunk {
   text: string
   section: string | null
 }
 
-function paragraphChunks(body: JSONNode): ParaChunk[] {
+export function paragraphChunks(body: JSONNode): ParaChunk[] {
   const out: ParaChunk[] = []
   let currentSection: string | null = null
 
@@ -493,7 +493,7 @@ function paragraphChunks(body: JSONNode): ParaChunk[] {
 // the chunks here so RAG works against the PDF without needing to re-extract
 // at runtime. Keep the text in sync with seedPdf.ts.
 
-const DRYING_OVEN_PAGE_CHUNKS: ParaChunk[] = [
+export const DRYING_OVEN_PAGE_CHUNKS: ParaChunk[] = [
   {
     section: "Page 1",
     text:

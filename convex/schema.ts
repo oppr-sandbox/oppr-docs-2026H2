@@ -53,7 +53,7 @@ export default defineSchema({
       v.literal("archived"),
     ),
     currentVersion: v.number(),
-    ownerId: v.id("users"),
+    ownerId: v.union(v.id("users"), v.null()),
     tags: v.array(v.string()),
     updatedAt: v.number(),
   })

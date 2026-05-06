@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useLocation, useRoute } from "wouter"
 import { FileText, Map as MapIcon, MapPin, Star } from "lucide-react"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
 import {
-  useDb,
-  useDbWatcher,
-  getAsset,
-  listAssetLogs,
-  listDocumentsForAsset,
-} from "@/db"
+  toLegacyAsset,
+  toLegacyAssetLog,
+  toLegacyDoc,
+} from "@/lib/convex-adapters"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { MobileHeader } from "@/components/mobile/MobileHeader"
@@ -24,27 +25,27 @@ import { cn } from "@/lib/utils"
 export function MobileAssetPage() {
   const [, params] = useRoute<{ id: string }>("/m/assets/:id")
   const id = params?.id ?? ""
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
   const [, navigate] = useLocation()
   const { isPinned, togglePin } = usePinned()
   const { pushRecent } = useRecentlyViewed()
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
+  const result = useQuery(
+    api.assets.getWithDocs,
+    id ? { id: id as Id<"assets"> } : "skip",
+  )
+  const ready = result !== undefined
   const asset = useMemo(
-    () => (db && id ? getAsset(db, id) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, id, watcher],
+    () => (result ? toLegacyAsset(result.asset) : null),
+    [result],
   )
   const docs = useMemo(
-    () => (db && id ? listDocumentsForAsset(db, id) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, id, watcher],
+    () => (result ? result.documents.map(toLegacyDoc) : []),
+    [result],
   )
   const logs = useMemo(
-    () => (db && id ? listAssetLogs(db, id) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [db, id, watcher],
+    () => (result ? result.logs.map(toLegacyAssetLog) : []),
+    [result],
   )
 
   // Push to recently-viewed once the asset resolves.

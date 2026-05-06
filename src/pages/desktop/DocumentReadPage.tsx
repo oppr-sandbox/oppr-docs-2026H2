@@ -11,15 +11,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useDb, useDbWatcher } from "@/db"
-import {
-  getCurrentVersion,
-  getDocumentWithAssets,
-  getVersion,
-} from "@/db/repositories/documents"
-import { getPdf } from "@/db/repositories/pdfs"
-import { getUser } from "@/db/repositories/users"
-import { PdfViewer } from "@/components/docs/PdfViewer"
+import { useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
 import { TiptapReadOnly } from "@/components/docs/TiptapReadOnly"
 import { VersionHistoryDrawer } from "@/components/docs/VersionHistoryDrawer"
 import { DocumentHero, extractPpeItems } from "@/components/docs/DocumentHero"
@@ -30,50 +25,44 @@ import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
   const id = params?.id
-  const search = useSearch()
-  const { db, ready } = useDb()
-  const watcher = useDbWatcher()
+  useSearch()
   const [, navigate] = useLocation()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [overrideVersion, setOverrideVersion] = useState<number | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
-  // Citation deep-link: ?page=N opens the PDF on the requested page.
-  const initialPage = useMemo(() => {
-    const p = new URLSearchParams(search).get("page")
-    if (!p) return 1
-    const n = parseInt(p, 10)
-    return Number.isFinite(n) && n > 0 ? n : 1
-  }, [search])
+  const docResult = useQuery(
+    api.documents.getWithAssets,
+    id ? { id: id as Id<"documents"> } : "skip",
+  )
+  const currentVersion = useQuery(
+    api.documents.getCurrentVersion,
+    id ? { documentId: id as Id<"documents"> } : "skip",
+  )
+  const ready = docResult !== undefined
 
   const docWithAssets = useMemo(() => {
-    if (!db || !id) return null
-    return getDocumentWithAssets(db, id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, id, watcher])
-
-  // Resolve which version row to render: override (drawer pick) or current.
-  const version = useMemo(() => {
-    if (!db || !docWithAssets) return null
-    if (overrideVersion != null && overrideVersion !== docWithAssets.current_version) {
-      return getVersion(db, docWithAssets.id, overrideVersion)
+    if (!docResult) return null
+    return {
+      ...toLegacyDoc(docResult.doc),
+      assets: docResult.assets.map(toLegacyAsset),
     }
-    return getCurrentVersion(db, docWithAssets.id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, docWithAssets, overrideVersion, watcher])
+  }, [docResult])
 
-  const pdf = useMemo(() => {
-    if (!db || !version || version.body_kind !== "pdf" || !version.pdf_blob_id)
-      return null
-    return getPdf(db, version.pdf_blob_id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, version, watcher])
+  const version = useMemo(() => {
+    if (!currentVersion) return null
+    return {
+      id: currentVersion._id,
+      document_id: currentVersion.documentId,
+      version: currentVersion.version,
+      body_kind: currentVersion.bodyKind,
+      body_json: currentVersion.bodyJson,
+      pdf_blob_id: currentVersion.pdfStorageId,
+      published_at: new Date(currentVersion.publishedAt).toISOString(),
+    }
+  }, [currentVersion])
 
-  const owner = useMemo(() => {
-    if (!db || !docWithAssets) return null
-    return getUser(db, docWithAssets.owner_id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, docWithAssets, watcher])
+  const owner = null
 
   if (!ready) {
     return (
@@ -201,10 +190,9 @@ export function DocumentReadPage() {
               No published version yet.
             </div>
           ) : version.body_kind === "pdf" ? (
-            <PdfViewer
-              bytes={pdf?.bytes ?? new Uint8Array(0)}
-              pageNumber={initialPage}
-            />
+            <div className="rounded-md border border-dashed p-12 text-center text-sm text-muted-foreground">
+              PDF rendering moves to Convex storage in Phase 4.
+            </div>
           ) : (
             <div ref={contentRef} className="rounded-md border bg-background p-6">
               <TiptapReadOnly content={version.body_json} />

@@ -12,8 +12,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { useTheme } from "next-themes"
+import { useMutation, useQuery } from "convex/react"
+import { useAuthActions } from "@convex-dev/auth/react"
+import { api } from "../../../convex/_generated/api"
 import { useDb } from "@/db/DbProvider"
 import { toast } from "sonner"
+import { buildSeedPayload } from "@/admin/buildSeedPayload"
 import {
   CHAT_MODEL,
   EMBEDDING_DIM,
@@ -44,6 +48,40 @@ interface GenResult {
 export function SettingsPage() {
   const { theme, setTheme } = useTheme()
   const { reset, db } = useDb()
+  const { signOut } = useAuthActions()
+  const seedStatus = useQuery(api.seed.status)
+  const runSeed = useMutation(api.seed.seedDemoData)
+  const [seeding, setSeeding] = useState(false)
+
+  async function handleConvexSeed() {
+    setSeeding(true)
+    const toastId = toast.loading("Building seed payload…")
+    try {
+      const payload = buildSeedPayload()
+      toast.loading(
+        `Pushing ${payload.documents.length} documents, ${payload.assets.length} assets…`,
+        { id: toastId },
+      )
+      const result = await runSeed({ payload })
+      if (result.skipped) {
+        toast.success(
+          `Already at seed version ${result.currentVersion} — nothing to do.`,
+          { id: toastId },
+        )
+      } else {
+        toast.success(
+          `Seeded ${result.counts.documents} docs, ${result.counts.assets} assets.`,
+          { id: toastId },
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), {
+        id: toastId,
+      })
+    } finally {
+      setSeeding(false)
+    }
+  }
   const [key, setKey] = useState(
     () =>
       localStorage.getItem(KEY_STORAGE) ??
@@ -450,14 +488,80 @@ export function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Demo data</CardTitle>
+          <CardTitle className="text-base">Convex backend</CardTitle>
           <CardDescription>
-            Reset to clean seed state. All edits are lost.
+            Server-side data on the dev deployment. Seed once, then user-created
+            documents persist across devices.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5 text-sm">
+            <ConfigRow
+              label="Seed version"
+              value={
+                seedStatus === undefined
+                  ? "…"
+                  : seedStatus.seedVersion === null
+                    ? "Not seeded"
+                    : String(seedStatus.seedVersion)
+              }
+              ok={
+                seedStatus === undefined
+                  ? undefined
+                  : seedStatus.seedVersion !== null
+              }
+            />
+            <ConfigRow
+              label="Has documents"
+              value={
+                seedStatus === undefined
+                  ? "…"
+                  : seedStatus.hasDocs
+                    ? "Yes"
+                    : "No"
+              }
+              ok={
+                seedStatus === undefined ? undefined : seedStatus.hasDocs
+              }
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={handleConvexSeed}
+              disabled={seeding}
+            >
+              {seeding ? (
+                <>
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  Seeding…
+                </>
+              ) : (
+                "Seed demo data to Convex"
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => signOut()}
+            >
+              Sign out
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Demo data (legacy sql.js)</CardTitle>
+          <CardDescription>
+            Reset the local sql.js seed. All in-browser edits are lost. Does not
+            touch the Convex backend.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="destructive" size="sm" onClick={handleReset}>
-            Reset demo
+            Reset local demo
           </Button>
         </CardContent>
       </Card>
