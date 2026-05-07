@@ -24,6 +24,7 @@ import { TypeBadge } from "@/components/docs/TypeBadge"
 import { DocumentEditor } from "@/components/docs/DocumentEditor"
 import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
 import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 import {
   MetadataPanel,
   validateMetadata,
@@ -234,90 +235,89 @@ export function DocumentEditPage() {
           { label: "Edit" },
         ]}
       />
-      <header className="sticky top-12 z-20 flex h-10 items-center justify-between border-b bg-background px-4 text-xs">
-        <div className="flex min-w-0 items-center gap-2">
-          <h1 className="truncate text-sm font-semibold">
-            {meta.title || "Untitled document"}
-          </h1>
-          <TypeBadge type={meta.type} />
-          <StatusBadge status={docWithAssets.status} />
-          <span className="hidden font-mono text-[10px] text-muted-foreground sm:inline">
-            {meta.namingCode} · v{docWithAssets.current_version}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="relative h-7 gap-1 px-2 text-[11px]"
-            onClick={toggleMeta}
-            title={metaVisible ? "Hide metadata panel" : "Show metadata panel"}
-          >
-            {metaVisible ? (
-              <EyeOff className="h-3 w-3" />
-            ) : (
-              <Eye className="h-3 w-3" />
-            )}
-            <span className="hidden md:inline">
-              {metaVisible ? "Hide metadata" : "Show metadata"}
+      <PageHeader
+        title={`${meta.namingCode || docWithAssets.naming_code} · ${
+          meta.title || "Untitled document"
+        }`}
+        subtitle={
+          <span className="flex flex-wrap items-center gap-2">
+            <TypeBadge type={meta.type} />
+            <StatusBadge status={docWithAssets.status} />
+            <span className="font-mono text-[10px]">
+              v{docWithAssets.current_version}
             </span>
-            {!metaVisible && errorCount > 0 && (
-              <span
-                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-destructive"
-                aria-label={`${errorCount} metadata error${errorCount === 1 ? "" : "s"}`}
-              />
-            )}
-          </Button>
-          <PublishToPdfDialog
-            documentId={docWithAssets.id}
-            trigger={
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 px-2 text-[11px] text-orange-600 hover:bg-orange-50 hover:text-orange-700"
-                title="Publish to PDF — title page, header/footer, page numbers"
-              >
-                <FileDown className="h-3 w-3" />
-                <span className="hidden md:inline">Publish to PDF</span>
-              </Button>
-            }
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => setLocation(`/docs/${docWithAssets.id}`)}
-          >
-            View
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            disabled={saving !== null}
-            onClick={() => void save("draft")}
-          >
-            {saving === "draft" ? "Saving…" : "Save draft"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            disabled={saving !== null}
-            onClick={() => void save("in_review")}
-          >
-            {saving === "in_review" ? "Submitting…" : "Submit"}
-          </Button>
-          <Button
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            disabled={saving !== null}
-            onClick={() => void save("published", `/docs/${docWithAssets.id}`)}
-          >
-            {saving === "published" ? "Publishing…" : "Publish"}
-          </Button>
-        </div>
-      </header>
+          </span>
+        }
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="relative"
+              onClick={toggleMeta}
+              title={metaVisible ? "Hide metadata panel" : "Show metadata panel"}
+            >
+              {metaVisible ? (
+                <EyeOff className="mr-1.5 h-3.5 w-3.5" />
+              ) : (
+                <Eye className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              <span className="hidden md:inline">
+                {metaVisible ? "Hide metadata" : "Show metadata"}
+              </span>
+              {!metaVisible && errorCount > 0 && (
+                <span
+                  className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive"
+                  aria-label={`${errorCount} metadata error${errorCount === 1 ? "" : "s"}`}
+                />
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLocation(`/docs/${docWithAssets.id}`)}
+            >
+              View
+            </Button>
+            <PublishToPdfDialog
+              documentId={docWithAssets.id}
+              trigger={
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
+                  title="Publish to PDF — title page, header/footer, page numbers"
+                >
+                  <FileDown className="h-3.5 w-3.5" />
+                  Publish to PDF
+                </Button>
+              }
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={saving !== null}
+              onClick={() => void save("draft")}
+            >
+              {saving === "draft" ? "Saving…" : "Save draft"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={saving !== null}
+              onClick={() => void save("in_review")}
+            >
+              {saving === "in_review" ? "Submitting…" : "Submit"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={saving !== null}
+              onClick={() => void save("published", `/docs/${docWithAssets.id}`)}
+            >
+              {saving === "published" ? "Publishing…" : "Publish"}
+            </Button>
+          </>
+        }
+      />
 
       <div
         className={cn(
@@ -331,12 +331,12 @@ export function DocumentEditPage() {
               content={body}
               onChange={(json) => setBody(json)}
               placeholder="Continue writing… type / for blocks"
-              toolbarTopOffset={40}
+              toolbarTopOffset={104}
             />
           </div>
         </div>
         {metaVisible && (
-          <div className="lg:sticky lg:top-14 lg:self-start">
+          <div className="lg:sticky lg:top-28 lg:self-start">
             <MetadataPanel
               value={meta}
               onChange={setMeta}

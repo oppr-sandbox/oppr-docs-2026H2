@@ -35,12 +35,12 @@ export interface AnalysisMeta {
 export const ANALYSES: AnalysisMeta[] = [
   {
     slug: "editor-overhaul",
-    title: "Editor overhaul — image, toolbar, tables, flow, print",
+    title: "Editor overhaul — image, toolbar, tables, flow, chrome, print",
     area: "Editor",
-    status: "in_progress",
+    status: "done",
     updatedAt: "2026-05-07",
     summary:
-      "Twelve issues from one testing round. P1 (image preview + link dialog + print fidelity) and P2 (toolbar regroup + table resize + image S/M/L) and P3 (creation chooser) shipped. P3 state-model refactor + P4 construction extras still outstanding.",
+      "Sixteen issues across image, link, table, toolbar, document flow, chrome consistency, and print. P1+P2+P3-chooser+P5-chrome shipped. Sticky PageHeader unifies read/edit chrome. P3 state-model refactor + P4 construction extras follow up separately.",
     Component: EditorOverhaulAnalysis,
   },
   {

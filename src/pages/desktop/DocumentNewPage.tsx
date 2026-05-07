@@ -331,6 +331,7 @@ export function DocumentNewPage() {
                   content={body}
                   onChange={(json) => setBody(json)}
                   placeholder="Write the first paragraph…"
+                  toolbarTopOffset={104}
                 />
               </CardContent>
             </Card>

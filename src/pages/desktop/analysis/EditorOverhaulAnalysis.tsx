@@ -70,9 +70,11 @@ export function EditorOverhaulAnalysis() {
       date="2026-05-07"
       scopes={["desktop", "data-model"]}
     >
+      <ProgressRecapSection />
       <ProblemSection />
       <EvidenceSection />
       <IssueInventorySection />
+      <ChromeConsistencySection />
       <ImagePreviewSection />
       <ImageResizeSection />
       <LinkDialogSection />
@@ -86,6 +88,180 @@ export function EditorOverhaulAnalysis() {
       <ImplementationPlanSection />
       <OpenQuestionsSection />
     </AnalysisLayout>
+  )
+}
+
+interface ShippedItem {
+  id: string
+  title: string
+  detail: string
+  commit: string
+}
+
+const SHIPPED: ShippedItem[] = [
+  {
+    id: "A · L",
+    title: "Image preview + image-in-print",
+    detail:
+      "Pre-resolve the signed URL at insert time so the editor paints the correct src on first frame; node view falls back to directSrc when the urlFor query is in flight, so re-renders with expired URLs still resolve. buildPrintDoc accepts an imageUrlMap; PublishToPdfDialog batches api.images.urlsFor before opening the print window.",
+    commit: "48a7172",
+  },
+  {
+    id: "C",
+    title: "Link dialog",
+    detail:
+      "InsertLinkDialog replaces the window.prompt. URL or naming code, optional display text, open-in-new-tab toggle, Unlink in edit mode.",
+    commit: "48a7172",
+  },
+  {
+    id: "K",
+    title: "Revision history on the title page",
+    detail:
+      "renderTitlePage renders the revision rows in the band below the metadata grid. Body section drops the duplicate.",
+    commit: "48a7172",
+  },
+  {
+    id: "F · G",
+    title: "Toolbar regroup, no More dropdown",
+    detail:
+      "Four named groups separated by vertical dividers: Text · Lists · Insert · Safety & Procedure. Heading select on the left.",
+    commit: "02705c1",
+  },
+  {
+    id: "D",
+    title: "Table column resize",
+    detail:
+      "Table.configure({ resizable: true, handleWidth: 4, cellMinWidth: 80 }). Drag handles on column borders; columns stop collapsing as text is typed.",
+    commit: "02705c1",
+  },
+  {
+    id: "B",
+    title: "Image S/M/L width preset",
+    detail:
+      "ImageWithRef gains a `width` attribute (33/66/100). Floating S/M/L selector when the image is selected. Honored in editor, read view, and print.",
+    commit: "02705c1",
+  },
+  {
+    id: "H",
+    title: "Creation chooser",
+    detail:
+      "Replaced the Switch-to-PDF-import toggle with /docs/new/compose vs /docs/new/import.",
+    commit: "84e384a",
+  },
+  {
+    id: "O",
+    title: "Edit-page width clamp",
+    detail: "Dropped max-w-[80ch] from the editor body so edit matches compose.",
+    commit: "c064053",
+  },
+  {
+    id: "P",
+    title: "+ New document modal",
+    detail:
+      "NewDocumentDialog opens in place from Library / Dashboard. /docs/new chooser kept as a fallback route.",
+    commit: "c064053",
+  },
+]
+
+function ProgressRecapSection() {
+  return (
+    <Section
+      title="Progress recap — what shipped"
+      description="Nine items from the inventory have already landed on feature/ui-overhaul. Each row links the commit so you can audit."
+    >
+      <Card>
+        <CardContent className="pt-6">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[8%]">Issue</TableHead>
+                <TableHead className="w-[22%]">What shipped</TableHead>
+                <TableHead>Detail</TableHead>
+                <TableHead className="w-[12%]">Commit</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {SHIPPED.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell className="align-top font-mono text-xs text-muted-foreground">
+                    {s.id}
+                  </TableCell>
+                  <TableCell className="align-top text-xs font-medium">
+                    {s.title}
+                  </TableCell>
+                  <TableCell className="align-top text-xs text-muted-foreground">
+                    {s.detail}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <Badge variant="outline" className="font-mono text-[10px]">
+                      {s.commit}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </Section>
+  )
+}
+
+function ChromeConsistencySection() {
+  return (
+    <Section
+      title="Issues M + N — sticky and consistent document chrome"
+      description="The new round of testing surfaced two related bugs in the read/edit chrome. Both are addressed by sharing a single sticky PageHeader between the two routes."
+    >
+      <Card>
+        <CardContent className="space-y-3 pt-6 text-sm">
+          <p>
+            <strong>M — read-page actions scroll away.</strong>{" "}
+            <code>DocumentReadPage.tsx</code> mounts <code>&lt;PageHeader&gt;</code>{" "}
+            with no sticky positioning. Past the first viewport-height of body,
+            Print / History / Publish to PDF / Edit are gone. The user has to
+            scroll back to the top to publish or open History.
+          </p>
+          <p>
+            <strong>N — edit-page strip and read-page header don't match.</strong>{" "}
+            <code>DocumentEditPage.tsx</code> hand-rolls a dense{" "}
+            <code>h-10 text-[11px]</code> sticky strip; read view uses{" "}
+            <code>&lt;PageHeader&gt;</code> with{" "}
+            <code>py-4 size-sm</code> buttons. Different shape, different
+            density, different button styles for the same document.
+          </p>
+          <Alert>
+            <Sparkles className="h-4 w-4" />
+            <AlertTitle>Proposed fix — one sticky PageHeader for both</AlertTitle>
+            <AlertDescription className="space-y-1.5 pt-1.5 text-xs">
+              <div>
+                <strong>(1) Make <code>PageHeader</code> sticky</strong> at{" "}
+                <code>top-12 z-20</code> with{" "}
+                <code>bg-background/95 backdrop-blur</code>. All pages that use
+                it (Library, Dashboard, Assets, Document read, Image library,
+                Settings, Analysis) get a sticky title bar. Cheap, no callsite
+                changes.
+              </div>
+              <div>
+                <strong>(2) Replace the dense edit-page strip</strong> with the
+                same <code>&lt;PageHeader&gt;</code>. Title + status + version
+                pills go in the title/subtitle slots. Six action buttons go in
+                the actions slot. Hide-metadata becomes a regular button (still
+                shows an error-count dot when validation fails). Read view and
+                edit view now have visually identical chrome — only the action
+                set differs.
+              </div>
+              <div>
+                <strong>(3) Drop the now-empty page-level h-10 wrappers</strong>{" "}
+                from the edit page. The toolbar stickiness handled by the
+                editor itself (sticky <code>top-12</code>) still applies for
+                the formatting ribbon.
+              </div>
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    </Section>
   )
 }
 
@@ -133,6 +309,8 @@ function EvidenceSection() {
           <TabsTrigger value="toolbar">Toolbar &amp; tables</TabsTrigger>
           <TabsTrigger value="edit">Edit page actions</TabsTrigger>
           <TabsTrigger value="print">Print fidelity</TabsTrigger>
+          <TabsTrigger value="sticky">Read scrolled</TabsTrigger>
+          <TabsTrigger value="consistency">Edit vs read</TabsTrigger>
         </TabsList>
         <TabsContent value="image">
           <ScreenshotCard
@@ -156,6 +334,18 @@ function EvidenceSection() {
           <ScreenshotCard
             src="/analysis/editor-overhaul/print-revision-page2.png"
             caption='Print view. Title page has the document name, code, version, owner, dates, type, tags. Then a hard page break. On page 2: a "Revision history" block, a "Linked assets" block, then the body. The title page has a large empty area; the revision history would fit there and would be in the right reading order ("front matter" before content).'
+          />
+        </TabsContent>
+        <TabsContent value="sticky">
+          <ScreenshotCard
+            src="/analysis/editor-overhaul/read-pageheader-not-sticky.png"
+            caption="Read view, scrolled to mid-document. The TopBar (breadcrumb + user menu) is still pinned at top — but the PageHeader with Print / History / Publish to PDF / Edit has scrolled out of view. The user has to scroll back to the top of the page to publish or check version history."
+          />
+        </TabsContent>
+        <TabsContent value="consistency">
+          <ScreenshotCard
+            src="/analysis/editor-overhaul/edit-strip-inconsistent.png"
+            caption="Edit view of the same document. The dense h-10 sticky strip with Hide metadata / Publish to PDF / View / Save draft / Submit / Publish has a different visual shape and density from the read view's PageHeader. Two routes for the same document, two different chrome shapes."
           />
         </TabsContent>
       </Tabs>
@@ -282,6 +472,38 @@ const ISSUES: IssueRow[] = [
     evidence:
       "Same root cause as A. The TipTap body JSON has the dataImageId attr but no resolved src. buildPrintDoc.ts renderTipTapDoc re-emits the empty src. Print sees <img src=''> and renders the alt-text fallback the browser provides.",
     severity: "high",
+  },
+  {
+    id: "M",
+    area: "state",
+    issue: "Read-page action bar (Print / History / Publish to PDF / Edit) scrolls away",
+    evidence:
+      "DocumentReadPage uses <TopBar> (sticky top-0) for the breadcrumb and <PageHeader> for the title + action buttons. PageHeader has no sticky positioning, so when the user scrolls a long doc the actions vanish from the viewport. The TopBar stays but has nothing useful in it for someone reading a long SOP.",
+    severity: "high",
+  },
+  {
+    id: "N",
+    area: "state",
+    issue: "Edit-page action strip is sticky but visually inconsistent with the read-page header",
+    evidence:
+      "DocumentEditPage uses a custom h-10 sticky strip (top-12 z-20) with dense h-7 text-[11px] buttons (Hide metadata / Publish to PDF / View / Save draft / Submit / Publish). DocumentReadPage uses a taller py-4 PageHeader with size-sm buttons. Two routes for the same document, two different chrome shapes — confusing.",
+    severity: "high",
+  },
+  {
+    id: "O",
+    area: "state",
+    issue: "Edit-page editor body clamped at max-w-[80ch]",
+    evidence:
+      "DocumentEditPage wrapped <DocumentEditor> in <div className='mx-auto w-full max-w-[80ch]'>. Compose-new doesn't clamp. So new docs get full canvas, edit gets a narrow column with whitespace either side.",
+    severity: "med",
+  },
+  {
+    id: "P",
+    area: "flow",
+    issue: "+ New document navigated to a chooser page instead of opening a modal in place",
+    evidence:
+      "Library / Dashboard buttons navigated to /docs/new, which rendered the chooser as its own route. Heavier than needed for a 2-option pick that doesn't deserve a page.",
+    severity: "low",
   },
 ]
 
@@ -1158,7 +1380,7 @@ function ImplementationPlanSection() {
   return (
     <Section
       title="Implementation plan"
-      description="Three phases, each one verifiable with npx tsc -b && npx vite build. Approx 6–8 commits total."
+      description="Five phases. P1, P2, P3-chooser, P5-chrome shipped. P3-state-model and P4-construction-extras still outstanding."
     >
       <Card>
         <CardContent className="space-y-3 pt-6 text-sm">
@@ -1197,12 +1419,21 @@ function ImplementationPlanSection() {
           />
           <Phase
             n={4}
-            title="P4 — construction-SOP extras — opt in"
+            title="P4 — construction-SOP extras — opt in (still outstanding)"
             steps={[
               "First-class LMRA block (TipTap node + read + print)",
               "Numbered Steps: image slot per step, sign-off checkbox",
               "Tools / equipment block",
               "@-mention autocomplete for cross-references",
+            ]}
+          />
+          <Phase
+            n={5}
+            title="P5 — sticky and consistent chrome — same day"
+            steps={[
+              "PageHeader: sticky top-12 z-20 bg-background/95 backdrop-blur",
+              "DocumentEditPage: replace dense h-10 strip with PageHeader (status + version pills in subtitle, all six actions in actions slot, hide-metadata becomes a regular button with an error-count dot when validation fails)",
+              "DocumentReadPage: no callsite change, gets stickiness automatically",
             ]}
           />
         </CardContent>
