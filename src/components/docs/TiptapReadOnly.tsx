@@ -45,7 +45,7 @@ export function TiptapReadOnly({ content, className }: TiptapReadOnlyProps) {
         StarterKit,
         ImageWithRef.configure({ inline: false }),
         Link.configure({ openOnClick: true, autolink: true }),
-        Table.configure({ resizable: false }),
+        Table.configure({ resizable: false, cellMinWidth: 80 }),
         TableRow,
         TableHeader,
         TableCell,

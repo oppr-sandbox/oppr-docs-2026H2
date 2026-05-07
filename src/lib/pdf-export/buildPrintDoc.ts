@@ -278,6 +278,7 @@ function renderNode(node: TipTapNode): string {
       const dataImageId = node.attrs?.["data-image-id"] as string | undefined
       const directSrc = String(node.attrs?.src ?? "")
       const alt = String(node.attrs?.alt ?? "")
+      const width = String(node.attrs?.width ?? "100")
       const resolved = dataImageId
         ? CURRENT_IMAGE_URL_MAP?.[dataImageId] ?? null
         : null
@@ -285,7 +286,13 @@ function renderNode(node: TipTapNode): string {
       if (!src) {
         return `<span class="img-missing" data-image-id="${escapeAttr(dataImageId ?? "")}">[image not available]</span>`
       }
-      return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" />`
+      const widthStyle =
+        width === "33"
+          ? "max-width:33%"
+          : width === "66"
+            ? "max-width:66%"
+            : "max-width:100%"
+      return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" style="${widthStyle}" />`
     }
     case "table":
       return `<table>${(node.content ?? []).map(renderNode).join("")}</table>`
