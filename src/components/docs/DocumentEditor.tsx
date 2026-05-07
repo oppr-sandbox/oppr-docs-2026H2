@@ -23,7 +23,7 @@ import {
 } from "react"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
-import Image from "@tiptap/extension-image"
+import { ImageWithRef } from "./ImageWithRef"
 import Link from "@tiptap/extension-link"
 import Placeholder from "@tiptap/extension-placeholder"
 import Table from "@tiptap/extension-table"
@@ -59,6 +59,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { LaunchLogNode, LaunchLogPicker } from "./LaunchLogBlock"
 import { LinkedAssetNode, LinkedAssetPicker } from "./LinkedAssetBlock"
+import { InsertImageDialog } from "./InsertImageDialog"
 import { CalloutNode, type CalloutKind } from "./CalloutBlock"
 import { PpeNode, PpePicker, PpeQuickPalette, type PpeItem } from "./PpeBlock"
 import { DiagramNode, DiagramPicker } from "./DiagramBlock"
@@ -273,13 +274,14 @@ export function DocumentEditor({
   const [assetPickerOpen, setAssetPickerOpen] = useState(false)
   const [ppePickerOpen, setPpePickerOpen] = useState(false)
   const [diagramPickerOpen, setDiagramPickerOpen] = useState(false)
+  const [imageDialogOpen, setImageDialogOpen] = useState(false)
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
       }),
-      Image.configure({ inline: false }),
+      ImageWithRef.configure({ inline: false }),
       Link.configure({ openOnClick: false, autolink: true }),
       Placeholder.configure({ placeholder }),
       Table.configure({ resizable: false }),
@@ -574,9 +576,7 @@ export function DocumentEditor({
 
   function insertImage() {
     if (!editor) return
-    const url = window.prompt("Image URL")
-    if (!url) return
-    editor.chain().focus().setImage({ src: url }).run()
+    setImageDialogOpen(true)
   }
 
   function insertTable() {
@@ -878,6 +878,21 @@ export function DocumentEditor({
         onSelect={(attrs) => {
           if (!editor) return
           editor.chain().focus().insertDiagram(attrs).run()
+        }}
+      />
+      <InsertImageDialog
+        open={imageDialogOpen}
+        onOpenChange={setImageDialogOpen}
+        onInsert={({ id, alt }) => {
+          if (!editor) return
+          editor
+            .chain()
+            .focus()
+            .insertContent({
+              type: "image",
+              attrs: { src: "", alt, "data-image-id": id },
+            })
+            .run()
         }}
       />
     </div>

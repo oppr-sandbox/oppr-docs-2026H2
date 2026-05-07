@@ -250,6 +250,12 @@ export const create = mutation({
       })
     }
 
+    await ctx.runMutation(internal.images.recomputeUsagesForVersion, {
+      documentId: docId,
+      documentVersion: 1,
+      body: args.body,
+    })
+
     await ctx.scheduler.runAfter(0, internal.ai.embed.embedMissingInternal, {
       documentId: docId,
     })
@@ -332,6 +338,12 @@ export const savePublish = mutation({
         })
       }
     }
+
+    await ctx.runMutation(internal.images.recomputeUsagesForVersion, {
+      documentId: args.id,
+      documentVersion: nextVersion,
+      body: args.body,
+    })
 
     await ctx.scheduler.runAfter(0, internal.ai.embed.embedMissingInternal, {
       documentId: args.id,

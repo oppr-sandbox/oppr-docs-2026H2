@@ -36,20 +36,20 @@ export const ANALYSES: AnalysisMeta[] = [
     slug: "page-header-spec",
     title: "Page header spec — TopBar, PageHeader, floating Ask IDA",
     area: "IA",
-    status: "outstanding",
+    status: "done",
     updatedAt: "2026-05-07",
     summary:
-      "Two-tier header system after the IA overhaul exposed an over-stuffed TopBar. Per-page decision table and floating Ask IDA proposal — review before we refactor every page.",
+      "Two-tier header system: TopBar (breadcrumb + user menu only), per-page PageHeader for title + page actions, floating Ask IDA bottom-right with route-driven scope. Implemented across every desktop page.",
     Component: PageHeaderSpecAnalysis,
   },
   {
     slug: "image-library",
     title: "Image library — upload flow + repository",
     area: "Editor",
-    status: "outstanding",
+    status: "done",
     updatedAt: "2026-05-07",
     summary:
-      "Replaces the window.prompt URL flow with an Upload + URL modal. Adds an `images` + `imageUsages` schema, a /images repo page, and a backfill action — review before we touch the schema.",
+      "Upload + URL modal in the editor, content-addressed images table with sha256 dedup, save-side imageUsages recompute, /images repository with detail modal (preview, edit, used-in, download, delete-when-orphaned).",
     Component: ImageLibraryAnalysis,
   },
   {
