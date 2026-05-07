@@ -56,6 +56,7 @@ import {
   LogsHoverPill,
   type DocPreview,
 } from "@/components/docs/FloorplanModal"
+import { TopBar } from "@/components/layout/TopBar"
 import { toast } from "sonner"
 
 const FLOORPLAN_OPTIONS = ["Pigment Calcination Floorplan"]
@@ -135,31 +136,30 @@ export function AssetsPage() {
 
   return (
     <div className="flex flex-col">
-      <header className="flex items-end justify-between gap-4 border-b px-6 py-5">
-        <div>
-          <h1 className="text-xl font-semibold">Project Assets</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Manage and view all assets linked to this project
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-muted-foreground">
-            Select Floorplan:
-          </span>
-          <Select value={selectedFloorplan} onValueChange={setSelectedFloorplan}>
-            <SelectTrigger className="h-9 w-64">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FLOORPLAN_OPTIONS.map((fp) => (
-                <SelectItem key={fp} value={fp}>
-                  {fp}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </header>
+      <TopBar breadcrumb={[{ label: "Assets" }]}>
+        <span className="hidden text-xs text-muted-foreground md:inline">
+          Floorplan:
+        </span>
+        <Select value={selectedFloorplan} onValueChange={setSelectedFloorplan}>
+          <SelectTrigger className="h-8 w-56 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {FLOORPLAN_OPTIONS.map((fp) => (
+              <SelectItem key={fp} value={fp}>
+                {fp}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TopBar>
+
+      <div className="border-b px-6 py-4">
+        <h1 className="text-xl font-semibold">Project Assets</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Manage and view all assets linked to this project
+        </p>
+      </div>
 
       <div className="space-y-4 p-6">
         {/* Tabs + view toggle */}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, useLocation, useRoute } from "wouter"
 import { ArrowLeft, Factory, FileText, Link as LinkIcon, MapPin, Pencil, QrCode } from "lucide-react"
+import { TopBar } from "@/components/layout/TopBar"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMutation, useQuery } from "convex/react"
@@ -145,17 +146,13 @@ export function AssetDetailPage() {
 
   return (
     <div className="flex flex-col">
-      <header className="flex h-14 items-center gap-3 border-b px-6">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate("/assets")}
-          className="-ml-2"
-        >
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Assets
-        </Button>
-      </header>
+      <TopBar
+        breadcrumb={[
+          { label: "Assets", href: "/assets" },
+          { label: `${asset.code} · ${asset.name}` },
+        ]}
+        askScope={{ kind: "asset", id: asset.id }}
+      />
 
       <div className="space-y-6 p-6">
         <div className="rounded-md border bg-card p-6">

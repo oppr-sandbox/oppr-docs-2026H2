@@ -23,6 +23,7 @@ import { StatusBadge } from "@/components/docs/StatusBadge"
 import { TypeBadge } from "@/components/docs/TypeBadge"
 import { DocumentEditor } from "@/components/docs/DocumentEditor"
 import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
+import { TopBar } from "@/components/layout/TopBar"
 import {
   MetadataPanel,
   validateMetadata,
@@ -221,7 +222,21 @@ export function DocumentEditPage() {
 
   return (
     <div className="flex flex-col">
-      <header className="sticky top-0 z-20 flex h-10 items-center justify-between border-b bg-background px-4 text-xs">
+      <TopBar
+        breadcrumb={[
+          { label: "Library", href: "/library" },
+          {
+            label: `${meta.namingCode || docWithAssets.naming_code} · ${
+              meta.title || "Untitled"
+            }`,
+            href: `/docs/${docWithAssets.id}`,
+          },
+          { label: "Edit" },
+        ]}
+        askScope={{ kind: "doc", id: docWithAssets.id }}
+        hideNewDoc
+      />
+      <header className="sticky top-12 z-20 flex h-10 items-center justify-between border-b bg-background px-4 text-xs">
         <div className="flex min-w-0 items-center gap-2">
           <h1 className="truncate text-sm font-semibold">
             {meta.title || "Untitled document"}
