@@ -278,7 +278,13 @@ function renderNode(node: TipTapNode): string {
       const dataImageId = node.attrs?.["data-image-id"] as string | undefined
       const directSrc = String(node.attrs?.src ?? "")
       const alt = String(node.attrs?.alt ?? "")
-      const width = String(node.attrs?.width ?? "100")
+      const widthRaw = Number(node.attrs?.width ?? 100)
+      const width = Number.isFinite(widthRaw)
+        ? Math.max(10, Math.min(100, Math.round(widthRaw)))
+        : 100
+      const alignRaw = String(node.attrs?.align ?? "center")
+      const align =
+        alignRaw === "left" || alignRaw === "right" ? alignRaw : "center"
       const resolved = dataImageId
         ? CURRENT_IMAGE_URL_MAP?.[dataImageId] ?? null
         : null
@@ -286,13 +292,13 @@ function renderNode(node: TipTapNode): string {
       if (!src) {
         return `<span class="img-missing" data-image-id="${escapeAttr(dataImageId ?? "")}">[image not available]</span>`
       }
-      const widthStyle =
-        width === "33"
-          ? "max-width:33%"
-          : width === "66"
-            ? "max-width:66%"
-            : "max-width:100%"
-      return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" style="${widthStyle}" />`
+      const marginStyle =
+        align === "left"
+          ? "margin-right:auto;margin-left:0"
+          : align === "right"
+            ? "margin-left:auto;margin-right:0"
+            : "margin-left:auto;margin-right:auto"
+      return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" style="display:block;width:${width}%;${marginStyle}" />`
     }
     case "table":
       return `<table>${(node.content ?? []).map(renderNode).join("")}</table>`

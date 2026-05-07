@@ -13,6 +13,7 @@ import { DocumentNewPage } from "@/pages/desktop/DocumentNewPage"
 import { DocumentNewChooserPage } from "@/pages/desktop/DocumentNewChooserPage"
 import { SettingsPage } from "@/pages/desktop/SettingsPage"
 import { ImageLibraryPage } from "@/pages/desktop/ImageLibraryPage"
+import { ImportPage } from "@/pages/desktop/ImportPage"
 import { AnalysisIndexPage } from "@/pages/desktop/AnalysisIndexPage"
 import { getAnalysisBySlug } from "@/pages/desktop/analysis/registry"
 import { MobileHomePage } from "@/pages/mobile/MobileHomePage"
@@ -74,6 +75,8 @@ function App() {
               <Route path="/docs/:id" component={DocumentReadPage} />
               <Route path="/settings" component={SettingsPage} />
               <Route path="/images" component={ImageLibraryPage} />
+              <Route path="/import" component={ImportPage} />
+              <Route path="/import/:jobId" component={ImportPage} />
               <Route path="/analysis" component={AnalysisIndexPage} />
               <Route path="/analysis/:slug" component={AnalysisRoute} />
               <Route>

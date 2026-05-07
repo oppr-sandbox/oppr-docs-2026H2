@@ -153,6 +153,95 @@ export default defineSchema({
     .index("by_documentId", ["documentId"])
     .index("by_documentId_and_version", ["documentId", "documentVersion"]),
 
+  importJobs: defineTable({
+    sourceStorageId: v.union(v.id("_storage"), v.null()),
+    sourceFilename: v.string(),
+    sourceContentType: v.string(),
+    sourceByteSize: v.number(),
+    sourceSha256: v.union(v.string(), v.null()),
+    targetTemplate: v.union(
+      v.literal("sop"),
+      v.literal("workInstructionLog"),
+      v.literal("manual"),
+      v.literal("lmra"),
+      v.literal("auto"),
+    ),
+    defaultMode: v.union(v.literal("verbatim"), v.literal("improve")),
+    stage: v.union(
+      v.literal("uploaded"),
+      v.literal("extracted"),
+      v.literal("mapped"),
+      v.literal("linksResolved"),
+      v.literal("finalized"),
+      v.literal("failed"),
+    ),
+    classification: v.union(
+      v.object({
+        kind: v.union(
+          v.literal("digitalPdf"),
+          v.literal("scannedPdf"),
+          v.literal("unsupported"),
+        ),
+        pageCount: v.number(),
+        detectedLanguage: v.union(v.string(), v.null()),
+      }),
+      v.null(),
+    ),
+    extractedMarkdown: v.union(v.string(), v.null()),
+    extractedPages: v.union(
+      v.array(
+        v.object({
+          pageNumber: v.number(),
+          text: v.string(),
+        }),
+      ),
+      v.null(),
+    ),
+    extractedImageIds: v.array(v.id("images")),
+    extractStats: v.optional(
+      v.union(
+        v.object({
+          imagesDetected: v.number(),
+          imagesExtracted: v.number(),
+          imagesSkipped: v.number(),
+          pageFallbackImages: v.number(),
+          jpegImages: v.number(),
+          pngImages: v.number(),
+        }),
+        v.null(),
+      ),
+    ),
+    mappedBody: v.union(v.any(), v.null()),
+    mappedLogSpec: v.union(v.any(), v.null()),
+    mappingNotes: v.union(v.string(), v.null()),
+    linkResolutions: v.union(
+      v.array(
+        v.object({
+          match: v.string(),
+          kind: v.union(
+            v.literal("document"),
+            v.literal("asset"),
+            v.literal("log"),
+          ),
+          confidence: v.number(),
+          targetId: v.union(v.string(), v.null()),
+          targetLabel: v.union(v.string(), v.null()),
+          accepted: v.boolean(),
+        }),
+      ),
+      v.null(),
+    ),
+    suggestedNamingCode: v.union(v.string(), v.null()),
+    suggestedTitle: v.union(v.string(), v.null()),
+    suggestedAssetIds: v.array(v.id("assets")),
+    finalizedDocumentId: v.union(v.id("documents"), v.null()),
+    error: v.union(v.string(), v.null()),
+    createdBy: v.union(v.id("users"), v.null()),
+    updatedAt: v.number(),
+  })
+    .index("by_createdBy", ["createdBy"])
+    .index("by_stage", ["stage"]),
+
   qaMessages: defineTable({
     sessionId: v.id("qaSessions"),
     role: v.union(v.literal("user"), v.literal("assistant")),

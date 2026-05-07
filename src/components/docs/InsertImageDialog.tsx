@@ -153,16 +153,17 @@ function UploadTab({
   }
 
   return (
-    <div className="space-y-3 py-3">
+    <div className="relative space-y-3 py-3">
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault()
-          pickFile(e.dataTransfer.files?.[0] ?? null)
+          if (!busy) pickFile(e.dataTransfer.files?.[0] ?? null)
         }}
-        className="flex w-full flex-col items-center gap-1.5 rounded-md border-2 border-dashed bg-muted/20 p-6 text-center transition-colors hover:bg-muted/40"
+        disabled={busy}
+        className="flex w-full flex-col items-center gap-1.5 rounded-md border-2 border-dashed bg-muted/20 p-6 text-center transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Upload className="h-5 w-5 text-muted-foreground" />
         <div className="text-sm font-medium">
@@ -185,6 +186,7 @@ function UploadTab({
           value={alt}
           onChange={(e) => setAlt(e.target.value)}
           placeholder="e.g. Mixer feedstock photo, top view"
+          disabled={busy}
         />
         <p className="text-[11px] text-muted-foreground">
           Required for accessibility. Same image used in multiple docs shares
@@ -203,6 +205,15 @@ function UploadTab({
           )}
         </Button>
       </DialogFooter>
+      {busy && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-background/85 backdrop-blur-sm">
+          <Loader2 className="h-7 w-7 animate-spin text-primary" />
+          <div className="text-sm font-medium">Uploading image…</div>
+          <div className="text-[11px] text-muted-foreground">
+            Hashing · uploading · registering in image library
+          </div>
+        </div>
+      )}
     </div>
   )
 }

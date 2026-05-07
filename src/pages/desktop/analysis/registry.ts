@@ -11,6 +11,8 @@ import { FrontendToConvexMigrationAnalysis } from "./FrontendToConvexMigrationAn
 import { PageHeaderSpecAnalysis } from "./PageHeaderSpecAnalysis"
 import { ImageLibraryAnalysis } from "./ImageLibraryAnalysis"
 import { EditorOverhaulAnalysis } from "./EditorOverhaulAnalysis"
+import { ExternalDocumentImporterAnalysis } from "./ExternalDocumentImporterAnalysis"
+import { ImporterPipelineDebugAnalysis } from "./ImporterPipelineDebugAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -33,6 +35,26 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "importer-pipeline-debug",
+    title: "Importer pipeline debug — broken images + empty body",
+    area: "Editor",
+    status: "done",
+    updatedAt: "2026-05-07",
+    summary:
+      "First real-PDF run reproduced three failures: 14 broken-image tiles, empty editor on finalize, suggested naming code missing. All 12 fix-plan steps shipped in one pass: jpegData fast-path + paintImageXObjectRepeat + per-page render fallback in extractPdf, new sanitizeTiptap.ts module (extractBodyContent + sanitizeNodes + buildFallbackBody), worked JSON example + softened verbatim instruction in the system prompt, Re-run AI mapping button, always-open raw mappedBody dump.",
+    Component: ImporterPipelineDebugAnalysis,
+  },
+  {
+    slug: "external-document-importer",
+    title: "External Document Importer — markitdown + AI mapping",
+    area: "Strategy",
+    status: "done",
+    updatedAt: "2026-05-07",
+    summary:
+      "Pipeline to convert external SOPs (PDF/Word/Excel/scanned) into database-built Oppr documents. Browser-only PDF path shipped via pdfjs-dist (Python service deferred to v2). Convex importJobs lifecycle, four template instructions (SOP / Manual / LMRA / Work-Instruction-Log), Gemini structural mapping action, cross-link resolution, 5-stage wizard. Closed out with the pipeline-debug fixes folded in.",
+    Component: ExternalDocumentImporterAnalysis,
+  },
   {
     slug: "editor-overhaul",
     title: "Editor overhaul — image, toolbar, tables, flow, chrome, print",

@@ -3,7 +3,7 @@
 
 import { useState, type ReactNode } from "react"
 import { useLocation } from "wouter"
-import { FileText, PlusCircle, Upload } from "lucide-react"
+import { FileText, PlusCircle, Sparkles, Upload } from "lucide-react"
 import {
   Card,
   CardContent,
@@ -36,18 +36,18 @@ export function NewDocumentDialog({ trigger }: NewDocumentDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <PlusCircle className="h-4 w-4 text-primary" />
             New document
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Pick how you want to start. Both paths land in the editor with
-            metadata next.
+            Pick how you want to start. Each path lands you in the editor (or
+            log spec) with metadata next.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-3 py-2 md:grid-cols-2">
+        <div className="grid gap-3 py-2 md:grid-cols-3">
           <PickerCard
             icon={FileText}
             title="Compose new"
@@ -56,9 +56,16 @@ export function NewDocumentDialog({ trigger }: NewDocumentDialogProps) {
           />
           <PickerCard
             icon={Upload}
-            title="Import PDF"
-            description="Upload an existing PDF. We extract per-page text and serve it through the read view."
+            title="Attach PDF"
+            description="Keep an existing PDF as-is. We extract per-page text for IDA but render the original PDF in the read view."
             onClick={() => pick("/docs/new/import")}
+          />
+          <PickerCard
+            icon={Sparkles}
+            title="Convert external"
+            description="Convert a PDF SOP or Work Instruction into a database-built Oppr document or LOG spec via markitdown + AI."
+            onClick={() => pick("/import")}
+            accent
           />
         </div>
       </DialogContent>
@@ -71,11 +78,13 @@ function PickerCard({
   title,
   description,
   onClick,
+  accent,
 }: {
   icon: typeof FileText
   title: string
   description: string
   onClick: () => void
+  accent?: boolean
 }) {
   return (
     <Card
@@ -88,7 +97,11 @@ function PickerCard({
           onClick()
         }
       }}
-      className="cursor-pointer transition-colors hover:border-primary"
+      className={
+        accent
+          ? "cursor-pointer border-primary/40 bg-primary/5 transition-colors hover:border-primary"
+          : "cursor-pointer transition-colors hover:border-primary"
+      }
     >
       <CardHeader className="pb-2">
         <Icon className="h-8 w-8 text-primary" />
