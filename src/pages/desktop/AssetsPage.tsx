@@ -56,6 +56,8 @@ import {
   LogsHoverPill,
   type DocPreview,
 } from "@/components/docs/FloorplanModal"
+import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { toast } from "sonner"
 
 const FLOORPLAN_OPTIONS = ["Pigment Calcination Floorplan"]
@@ -135,70 +137,68 @@ export function AssetsPage() {
 
   return (
     <div className="flex flex-col">
-      <header className="flex items-end justify-between gap-4 border-b px-6 py-5">
-        <div>
-          <h1 className="text-xl font-semibold">Project Assets</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Manage and view all assets linked to this project
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-muted-foreground">
-            Select Floorplan:
-          </span>
-          <Select value={selectedFloorplan} onValueChange={setSelectedFloorplan}>
-            <SelectTrigger className="h-9 w-64">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FLOORPLAN_OPTIONS.map((fp) => (
-                <SelectItem key={fp} value={fp}>
-                  {fp}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </header>
+      <TopBar breadcrumb={[{ label: "Assets" }]} />
+      <PageHeader
+        icon={Factory}
+        title="Project Assets"
+        subtitle="Manage and view all assets linked to this project"
+      />
 
       <div className="space-y-4 p-6">
-        {/* Tabs + view toggle */}
-        <div className="flex items-center justify-between">
+        {/* Tabs + view toggle + floorplan picker (in-page filter) */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
             <TabsList>
               <TabsTrigger value="list">Asset List</TabsTrigger>
               <TabsTrigger value="hierarchy">Asset Hierarchy</TabsTrigger>
             </TabsList>
           </Tabs>
-          <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
-            <Button
-              variant={view === "grid" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setView("grid")}
-              aria-label="Grid view"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={view === "list" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setView("list")}
-              aria-label="List view"
-            >
-              <List className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setFloorplanOpen(true)}
-              aria-label="Open floorplan"
-              title="Open floorplan"
-            >
-              <MapIcon className="h-4 w-4" />
-            </Button>
+          <div className="flex items-center gap-2">
+            <span className="hidden text-xs text-muted-foreground md:inline">
+              Floorplan:
+            </span>
+            <Select value={selectedFloorplan} onValueChange={setSelectedFloorplan}>
+              <SelectTrigger className="h-8 w-56 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FLOORPLAN_OPTIONS.map((fp) => (
+                  <SelectItem key={fp} value={fp}>
+                    {fp}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
+              <Button
+                variant={view === "grid" ? "secondary" : "ghost"}
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => setView("grid")}
+                aria-label="Grid view"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={view === "list" ? "secondary" : "ghost"}
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => setView("list")}
+                aria-label="List view"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => setFloorplanOpen(true)}
+                aria-label="Open floorplan"
+                title="Open floorplan"
+              >
+                <MapIcon className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </div>
 

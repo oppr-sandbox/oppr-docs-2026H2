@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react"
 import { EditorContent, useEditor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
-import Image from "@tiptap/extension-image"
+import { ImageWithRef } from "./ImageWithRef"
 import Link from "@tiptap/extension-link"
 import Table from "@tiptap/extension-table"
 import TableRow from "@tiptap/extension-table-row"
@@ -43,9 +43,9 @@ export function TiptapReadOnly({ content, className }: TiptapReadOnlyProps) {
       content: isValid ? (content as object) : null,
       extensions: [
         StarterKit,
-        Image.configure({ inline: false }),
+        ImageWithRef.configure({ inline: false }),
         Link.configure({ openOnClick: true, autolink: true }),
-        Table.configure({ resizable: false }),
+        Table.configure({ resizable: false, cellMinWidth: 80 }),
         TableRow,
         TableHeader,
         TableCell,

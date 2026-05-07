@@ -24,6 +24,7 @@ import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
+import { walkBodyImages } from "../../../convex/lib/imageWalker"
 import { extractPpeItems } from "@/components/docs/DocumentHero"
 import {
   buildPrintDoc,
@@ -71,6 +72,19 @@ export function PublishToPdfDialog({ documentId, trigger }: PublishToPdfDialogPr
     return { doc, version, owner: null, ppeOnDoc }
   }, [docResult, versionResult])
 
+  const imageIds = useMemo<Id<"images">[]>(() => {
+    if (!resolved || resolved.version.body_kind !== "tiptap") return []
+    const refs = walkBodyImages(resolved.version.body_json)
+    const ids = new Set<string>()
+    for (const r of refs) if (r.imageId) ids.add(r.imageId)
+    return Array.from(ids) as Id<"images">[]
+  }, [resolved])
+
+  const imageUrlMap = useQuery(
+    api.images.urlsFor,
+    open && imageIds.length > 0 ? { ids: imageIds } : "skip",
+  )
+
   function buildHtml(): string | null {
     if (!resolved) return null
     if (resolved.version.body_kind === "pdf") {
@@ -84,6 +98,7 @@ export function PublishToPdfDialog({ documentId, trigger }: PublishToPdfDialogPr
       owner: resolved.owner,
       options,
       ppeOnDoc: resolved.ppeOnDoc,
+      imageUrlMap: imageUrlMap ?? undefined,
     })
   }
 

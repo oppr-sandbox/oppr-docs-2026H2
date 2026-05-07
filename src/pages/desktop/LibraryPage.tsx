@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useLocation } from "wouter"
-import { LayoutList, Layers, PlusCircle, Upload } from "lucide-react"
+import { LayoutList, Layers, Library as LibraryIcon, PlusCircle, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -22,7 +22,9 @@ import {
   type DocumentRowAction,
 } from "@/components/docs/DocumentLibraryTable"
 import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
-import { AskIdaSheet } from "@/components/ai/AskIdaSheet"
+import { NewDocumentDialog } from "@/components/docs/NewDocumentDialog"
+import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { toast } from "sonner"
 
 type StatusFilter = DocumentStatus | "all"
@@ -143,29 +145,32 @@ export function LibraryPage() {
 
   return (
     <div className="flex flex-col">
-      <header className="flex h-14 items-center justify-between border-b px-6">
-        <div>
-          <h1 className="text-base font-semibold">Document library</h1>
-          <p className="text-xs text-muted-foreground">
-            All SOPs, manuals, and work instructions
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <AskIdaSheet scope={{ kind: "library" }} variant="outline" />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => navigate("/docs/new?kind=pdf")}
-          >
-            <Upload className="mr-2 h-4 w-4" />
-            Upload PDF
-          </Button>
-          <Button size="sm" onClick={() => navigate("/docs/new")}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New document
-          </Button>
-        </div>
-      </header>
+      <TopBar breadcrumb={[{ label: "Library" }]} />
+      <PageHeader
+        icon={LibraryIcon}
+        title="Document library"
+        subtitle="All SOPs, manuals, and work instructions"
+        actions={
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate("/docs/new/import")}
+            >
+              <Upload className="mr-1.5 h-3.5 w-3.5" />
+              Upload PDF
+            </Button>
+            <NewDocumentDialog
+              trigger={
+                <Button size="sm">
+                  <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+                  New document
+                </Button>
+              }
+            />
+          </>
+        }
+      />
       <div className="space-y-4 p-6">
         <div className="flex flex-wrap items-center gap-2">
           <Input

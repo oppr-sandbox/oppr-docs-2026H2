@@ -121,6 +121,38 @@ export default defineSchema({
       "scopeId",
     ]),
 
+  images: defineTable({
+    source: v.union(v.literal("upload"), v.literal("url")),
+    storageId: v.union(v.id("_storage"), v.null()),
+    externalUrl: v.union(v.string(), v.null()),
+    filename: v.string(),
+    contentType: v.string(),
+    byteSize: v.union(v.number(), v.null()),
+    width: v.union(v.number(), v.null()),
+    height: v.union(v.number(), v.null()),
+    sha256: v.union(v.string(), v.null()),
+    altText: v.string(),
+    uploadedBy: v.union(v.id("users"), v.null()),
+    createdAt: v.number(),
+  })
+    .index("by_sha256", ["sha256"])
+    .index("by_uploadedBy", ["uploadedBy"]),
+
+  imageUsages: defineTable({
+    imageId: v.id("images"),
+    documentId: v.id("documents"),
+    documentVersion: v.number(),
+    context: v.union(
+      v.literal("body"),
+      v.literal("thumbnail"),
+      v.literal("asset"),
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_imageId", ["imageId"])
+    .index("by_documentId", ["documentId"])
+    .index("by_documentId_and_version", ["documentId", "documentVersion"]),
+
   qaMessages: defineTable({
     sessionId: v.id("qaSessions"),
     role: v.union(v.literal("user"), v.literal("assistant")),

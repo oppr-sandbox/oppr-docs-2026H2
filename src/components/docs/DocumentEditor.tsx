@@ -23,7 +23,7 @@ import {
 } from "react"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
-import Image from "@tiptap/extension-image"
+import { ImageWithRef } from "./ImageWithRef"
 import Link from "@tiptap/extension-link"
 import Placeholder from "@tiptap/extension-placeholder"
 import Table from "@tiptap/extension-table"
@@ -51,7 +51,6 @@ import {
   Type,
   HardHat,
   ChevronDown,
-  MoreHorizontal,
   AlertTriangle,
   Image as DiagramIcon,
 } from "lucide-react"
@@ -59,6 +58,8 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { LaunchLogNode, LaunchLogPicker } from "./LaunchLogBlock"
 import { LinkedAssetNode, LinkedAssetPicker } from "./LinkedAssetBlock"
+import { InsertImageDialog } from "./InsertImageDialog"
+import { InsertLinkDialog } from "./InsertLinkDialog"
 import { CalloutNode, type CalloutKind } from "./CalloutBlock"
 import { PpeNode, PpePicker, PpeQuickPalette, type PpeItem } from "./PpeBlock"
 import { DiagramNode, DiagramPicker } from "./DiagramBlock"
@@ -257,6 +258,14 @@ function ToolbarDivider() {
   return <div className="mx-1 h-6 w-px bg-border" />
 }
 
+function ToolbarGroup({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-0.5 border-l border-border pl-2 first:border-l-0 first:pl-0">
+      {children}
+    </div>
+  )
+}
+
 // --- Component --------------------------------------------------------------
 
 export function DocumentEditor({
@@ -273,16 +282,23 @@ export function DocumentEditor({
   const [assetPickerOpen, setAssetPickerOpen] = useState(false)
   const [ppePickerOpen, setPpePickerOpen] = useState(false)
   const [diagramPickerOpen, setDiagramPickerOpen] = useState(false)
+  const [imageDialogOpen, setImageDialogOpen] = useState(false)
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [linkInitial, setLinkInitial] = useState<{
+    url: string | null
+    text: string
+    openInNewTab: boolean
+  }>({ url: null, text: "", openInNewTab: true })
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
       }),
-      Image.configure({ inline: false }),
+      ImageWithRef.configure({ inline: false }),
       Link.configure({ openOnClick: false, autolink: true }),
       Placeholder.configure({ placeholder }),
-      Table.configure({ resizable: false }),
+      Table.configure({ resizable: true, handleWidth: 4, cellMinWidth: 80 }),
       TableRow,
       TableHeader,
       TableCell,
@@ -557,26 +573,80 @@ export function DocumentEditor({
 
   function setLink() {
     if (!editor) return
-    const previous = editor.getAttributes("link").href as string | undefined
-    const url = window.prompt("Link URL", previous ?? "https://")
-    if (url === null) return
-    if (url === "") {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run()
-      return
+    const previous = editor.getAttributes("link") as {
+      href?: string
+      target?: string
     }
-    editor
-      .chain()
-      .focus()
-      .extendMarkRange("link")
-      .setLink({ href: url })
-      .run()
+    const { from, to, empty } = editor.state.selection
+    const selectedText = empty
+      ? ""
+      : editor.state.doc.textBetween(from, to, " ")
+    setLinkInitial({
+      url: previous.href ?? null,
+      text: selectedText,
+      openInNewTab: previous.target === "_blank",
+    })
+    setLinkDialogOpen(true)
+  }
+
+  function applyLink(args: { url: string; text: string; openInNewTab: boolean }) {
+    if (!editor) return
+    // Naming code → /n/<code> (resolver route TBD); URLs pass through.
+    const looksLikeNamingCode = /^[A-Z]{2,5}-[A-Z]{2,5}-[A-Z]{2,5}-\d{3,4}$/.test(args.url)
+    const href = looksLikeNamingCode ? `/n/${args.url}` : args.url
+    const target = args.openInNewTab ? "_blank" : null
+    const rel = args.openInNewTab ? "noopener noreferrer" : null
+    const { from, to, empty } = editor.state.selection
+    if (empty) {
+      // Insert new text + link at the cursor
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "text",
+          text: args.text,
+          marks: [
+            { type: "link", attrs: { href, target, rel } as Record<string, string | null> },
+          ],
+        })
+        .run()
+    } else {
+      // Apply link to the current selection. If text changed, replace it.
+      const selectedText = editor.state.doc.textBetween(from, to, " ")
+      if (args.text && args.text !== selectedText) {
+        editor
+          .chain()
+          .focus()
+          .insertContentAt(
+            { from, to },
+            {
+              type: "text",
+              text: args.text,
+              marks: [
+                { type: "link", attrs: { href, target, rel } as Record<string, string | null> },
+              ],
+            },
+          )
+          .run()
+      } else {
+        editor
+          .chain()
+          .focus()
+          .extendMarkRange("link")
+          .setLink({ href, target, rel } as { href: string })
+          .run()
+      }
+    }
+  }
+
+  function unsetLinkMark() {
+    if (!editor) return
+    editor.chain().focus().extendMarkRange("link").unsetLink().run()
   }
 
   function insertImage() {
     if (!editor) return
-    const url = window.prompt("Image URL")
-    if (!url) return
-    editor.chain().focus().setImage({ src: url }).run()
+    setImageDialogOpen(true)
   }
 
   function insertTable() {
@@ -598,10 +668,10 @@ export function DocumentEditor({
     <div ref={containerRef} className="relative">
       {editable && (
         <div
-          className="sticky z-10 flex flex-wrap items-center gap-0.5 rounded-t-md border border-b-0 bg-background p-1.5"
+          className="sticky z-10 flex flex-wrap items-center gap-2 rounded-t-md border border-b-0 bg-background p-1.5"
           style={{ top: toolbarTopOffset }}
         >
-          {/* Heading dropdown — combines paragraph + H1/H2/H3 */}
+          {/* Heading select — left-most */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -609,184 +679,158 @@ export function DocumentEditor({
                 variant="ghost"
                 size="sm"
                 className="h-8 gap-1 px-2 text-xs font-medium"
-                title="Heading style"
+                title="Paragraph style"
               >
                 {editor.isActive("heading", { level: 1 }) ? (
                   <>
-                    <Heading1 className="h-4 w-4" />
-                    H1
+                    <Heading1 className="h-4 w-4" /> H1
                   </>
                 ) : editor.isActive("heading", { level: 2 }) ? (
                   <>
-                    <Heading2 className="h-4 w-4" />
-                    H2
+                    <Heading2 className="h-4 w-4" /> H2
                   </>
                 ) : editor.isActive("heading", { level: 3 }) ? (
                   <>
-                    <Heading3 className="h-4 w-4" />
-                    H3
+                    <Heading3 className="h-4 w-4" /> H3
                   </>
                 ) : (
                   <>
-                    <Type className="h-4 w-4" />
-                    Text
+                    <Type className="h-4 w-4" /> Text
                   </>
                 )}
                 <ChevronDown className="h-3 w-3 opacity-50" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuItem
-                onSelect={() => editor.chain().focus().setParagraph().run()}
-              >
+              <DropdownMenuItem onSelect={() => editor.chain().focus().setParagraph().run()}>
                 <Type className="mr-2 h-4 w-4" /> Paragraph
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-              >
+              <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
                 <Heading1 className="mr-2 h-4 w-4" /> Heading 1
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-              >
+              <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
                 <Heading2 className="mr-2 h-4 w-4" /> Heading 2
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-              >
+              <DropdownMenuItem onSelect={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
                 <Heading3 className="mr-2 h-4 w-4" /> Heading 3
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <ToolbarDivider />
 
-          {/* Inline marks — kept visible for prose-heavy authoring */}
-          <ToolbarButton
-            title="Bold"
-            active={editor.isActive("bold")}
-            onClick={() => editor.chain().focus().toggleBold().run()}
-          >
-            <Bold className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton
-            title="Italic"
-            active={editor.isActive("italic")}
-            onClick={() => editor.chain().focus().toggleItalic().run()}
-          >
-            <Italic className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton
-            title="Bullet list"
-            active={editor.isActive("bulletList")}
-            onClick={() => editor.chain().focus().toggleBulletList().run()}
-          >
-            <List className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton
-            title="Link"
-            active={editor.isActive("link")}
-            onClick={setLink}
-          >
-            <LinkIcon className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Table" onClick={insertTable}>
-            <TableIcon className="h-4 w-4" />
-          </ToolbarButton>
+          {/* Group: Text */}
+          <ToolbarGroup>
+            <ToolbarButton
+              title="Bold"
+              active={editor.isActive("bold")}
+              onClick={() => editor.chain().focus().toggleBold().run()}
+            >
+              <Bold className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Italic"
+              active={editor.isActive("italic")}
+              onClick={() => editor.chain().focus().toggleItalic().run()}
+            >
+              <Italic className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Strikethrough"
+              active={editor.isActive("strike")}
+              onClick={() => editor.chain().focus().toggleStrike().run()}
+            >
+              <Strikethrough className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Quote"
+              active={editor.isActive("blockquote")}
+              onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            >
+              <Quote className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Code block"
+              active={editor.isActive("codeBlock")}
+              onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            >
+              <Code className="h-4 w-4" />
+            </ToolbarButton>
+          </ToolbarGroup>
+
+          {/* Group: Lists */}
+          <ToolbarGroup>
+            <ToolbarButton
+              title="Bullet list"
+              active={editor.isActive("bulletList")}
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+            >
+              <List className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Numbered list"
+              active={editor.isActive("orderedList")}
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            >
+              <ListOrdered className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Numbered steps"
+              onClick={() => editor.chain().focus().insertStepList(3).run()}
+            >
+              <ListChecks className="h-4 w-4" />
+            </ToolbarButton>
+          </ToolbarGroup>
+
+          {/* Group: Insert */}
+          <ToolbarGroup>
+            <ToolbarButton
+              title="Link"
+              active={editor.isActive("link")}
+              onClick={setLink}
+            >
+              <LinkIcon className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Image" onClick={insertImage}>
+              <ImageIcon className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Table" onClick={insertTable}>
+              <TableIcon className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title="Horizontal rule"
+              onClick={() => editor.chain().focus().setHorizontalRule().run()}
+            >
+              <Minus className="h-4 w-4" />
+            </ToolbarButton>
+          </ToolbarGroup>
 
           {!compact && (
-            <>
-              <ToolbarDivider />
-
-              {/* Safety palette — replaces the old single Callout dropdown */}
+            <ToolbarGroup>
               <SafetyPalette
                 onSelect={(kind) =>
                   editor.chain().focus().insertCallout(kind).run()
                 }
               />
-
-              {/* PPE quick palette — replaces the dialog as the toolbar default */}
               <PpeQuickPalette
                 onInsert={(items: PpeItem[]) =>
                   editor.chain().focus().insertPpe(items).run()
                 }
               />
-
-              <ToolbarButton
-                title="Insert linked asset"
-                onClick={() => setAssetPickerOpen(true)}
-              >
-                <Hash className="h-4 w-4 text-emerald-600" />
+              <ToolbarButton title="Diagram" onClick={() => setDiagramPickerOpen(true)}>
+                <DiagramIcon className="h-4 w-4 text-purple-600" />
               </ToolbarButton>
-
               <ToolbarButton
-                title="Insert launch-log block"
+                title="Launch log"
                 onClick={() => setLogPickerOpen(true)}
               >
                 <Play className="h-4 w-4 text-sky-600" />
               </ToolbarButton>
-
-              <ToolbarDivider />
-
-              {/* Overflow — lower-frequency actions live here so the always-
-                  visible row stays under 10 buttons. */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 gap-1 px-2 text-xs"
-                    title="More tools"
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                    More
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuItem
-                    onSelect={() => editor.chain().focus().toggleStrike().run()}
-                  >
-                    <Strikethrough className="mr-2 h-4 w-4" /> Strikethrough
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => editor.chain().focus().toggleOrderedList().run()}
-                  >
-                    <ListOrdered className="mr-2 h-4 w-4" /> Numbered list
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => editor.chain().focus().toggleBlockquote().run()}
-                  >
-                    <Quote className="mr-2 h-4 w-4" /> Quote
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => editor.chain().focus().toggleCodeBlock().run()}
-                  >
-                    <Code className="mr-2 h-4 w-4" /> Code block
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={insertImage}>
-                    <ImageIcon className="mr-2 h-4 w-4" /> Image
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => editor.chain().focus().setHorizontalRule().run()}
-                  >
-                    <Minus className="mr-2 h-4 w-4" /> Horizontal rule
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => editor.chain().focus().insertStepList(3).run()}
-                  >
-                    <ListChecks className="mr-2 h-4 w-4" /> Numbered steps
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => setDiagramPickerOpen(true)}>
-                    <DiagramIcon className="mr-2 h-4 w-4 text-purple-600" /> Diagram
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => setPpePickerOpen(true)}>
-                    <HardHat className="mr-2 h-4 w-4 text-orange-600" /> PPE picker (dialog)
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
+              <ToolbarButton
+                title="Linked asset"
+                onClick={() => setAssetPickerOpen(true)}
+              >
+                <Hash className="h-4 w-4 text-emerald-600" />
+              </ToolbarButton>
+            </ToolbarGroup>
           )}
         </div>
       )}
@@ -879,6 +923,30 @@ export function DocumentEditor({
           if (!editor) return
           editor.chain().focus().insertDiagram(attrs).run()
         }}
+      />
+      <InsertImageDialog
+        open={imageDialogOpen}
+        onOpenChange={setImageDialogOpen}
+        onInsert={({ id, alt, url }) => {
+          if (!editor) return
+          editor
+            .chain()
+            .focus()
+            .insertContent({
+              type: "image",
+              attrs: { src: url ?? "", alt, "data-image-id": id },
+            })
+            .run()
+        }}
+      />
+      <InsertLinkDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        initialUrl={linkInitial.url}
+        initialText={linkInitial.text}
+        initialOpenInNewTab={linkInitial.openInNewTab}
+        onInsert={applyLink}
+        onUnlink={unsetLinkMark}
       />
     </div>
   )

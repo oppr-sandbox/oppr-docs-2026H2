@@ -1,20 +1,20 @@
-import { Route, Switch, useLocation } from "wouter"
+import { Route, Switch, useLocation, useRoute } from "wouter"
 import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/sonner"
 import { DesktopShell } from "@/components/layout/DesktopShell"
 import { MobileShell } from "@/components/mobile/MobileShell"
+import { DashboardPage } from "@/pages/desktop/DashboardPage"
 import { LibraryPage } from "@/pages/desktop/LibraryPage"
 import { AssetsPage } from "@/pages/desktop/AssetsPage"
 import { AssetDetailPage } from "@/pages/desktop/AssetDetailPage"
 import { DocumentReadPage } from "@/pages/desktop/DocumentReadPage"
 import { DocumentEditPage } from "@/pages/desktop/DocumentEditPage"
 import { DocumentNewPage } from "@/pages/desktop/DocumentNewPage"
+import { DocumentNewChooserPage } from "@/pages/desktop/DocumentNewChooserPage"
 import { SettingsPage } from "@/pages/desktop/SettingsPage"
-import { IdaSourcesAnalysis } from "@/pages/desktop/analysis/IdaSourcesAnalysis"
-import { TiptapEditorRevampAnalysis } from "@/pages/desktop/analysis/TiptapEditorRevampAnalysis"
-import { GapAnalysis } from "@/pages/desktop/analysis/GapAnalysis"
-import { EditorPublishFlowAnalysis } from "@/pages/desktop/analysis/EditorPublishFlowAnalysis"
-import { FrontendToConvexMigrationAnalysis } from "@/pages/desktop/analysis/FrontendToConvexMigrationAnalysis"
+import { ImageLibraryPage } from "@/pages/desktop/ImageLibraryPage"
+import { AnalysisIndexPage } from "@/pages/desktop/AnalysisIndexPage"
+import { getAnalysisBySlug } from "@/pages/desktop/analysis/registry"
 import { MobileHomePage } from "@/pages/mobile/MobileHomePage"
 import { MobileScanPage } from "@/pages/mobile/MobileScanPage"
 import { MobileAssetsPage } from "@/pages/mobile/MobileAssetsPage"
@@ -24,6 +24,20 @@ import { MobileDocPage } from "@/pages/mobile/MobileDocPage"
 import { MobileAskPage } from "@/pages/mobile/MobileAskPage"
 import { MobileFloorplanPage } from "@/pages/mobile/MobileFloorplanPage"
 import { AuthGate } from "@/auth/AuthGate"
+
+function AnalysisRoute() {
+  const [, params] = useRoute<{ slug: string }>("/analysis/:slug")
+  const meta = params ? getAnalysisBySlug(params.slug) : undefined
+  if (!meta) {
+    return (
+      <div className="p-8">
+        <h1 className="text-2xl font-bold">Analysis not found</h1>
+      </div>
+    )
+  }
+  const Component = meta.Component
+  return <Component />
+}
 
 function App() {
   const [location] = useLocation()
@@ -49,33 +63,19 @@ function App() {
         ) : (
           <DesktopShell>
             <Switch>
-              <Route path="/" component={LibraryPage} />
+              <Route path="/" component={DashboardPage} />
+              <Route path="/library" component={LibraryPage} />
               <Route path="/assets" component={AssetsPage} />
               <Route path="/assets/:id" component={AssetDetailPage} />
-              <Route path="/docs/new" component={DocumentNewPage} />
+              <Route path="/docs/new" component={DocumentNewChooserPage} />
+              <Route path="/docs/new/compose" component={DocumentNewPage} />
+              <Route path="/docs/new/import" component={DocumentNewPage} />
               <Route path="/docs/:id/edit" component={DocumentEditPage} />
               <Route path="/docs/:id" component={DocumentReadPage} />
               <Route path="/settings" component={SettingsPage} />
-              <Route
-                path="/analysis/ida-sources-and-clear-modal"
-                component={IdaSourcesAnalysis}
-              />
-              <Route
-                path="/analysis/tiptap-editor-revamp"
-                component={TiptapEditorRevampAnalysis}
-              />
-              <Route
-                path="/analysis/gap-analysis"
-                component={GapAnalysis}
-              />
-              <Route
-                path="/analysis/editor-publish-flow"
-                component={EditorPublishFlowAnalysis}
-              />
-              <Route
-                path="/analysis/frontend-to-convex-migration"
-                component={FrontendToConvexMigrationAnalysis}
-              />
+              <Route path="/images" component={ImageLibraryPage} />
+              <Route path="/analysis" component={AnalysisIndexPage} />
+              <Route path="/analysis/:slug" component={AnalysisRoute} />
               <Route>
                 <div className="p-8">
                   <h1 className="text-2xl font-bold">Not found</h1>

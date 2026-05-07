@@ -20,8 +20,9 @@ import { TiptapReadOnly } from "@/components/docs/TiptapReadOnly"
 import { VersionHistoryDrawer } from "@/components/docs/VersionHistoryDrawer"
 import { DocumentHero, extractPpeItems } from "@/components/docs/DocumentHero"
 import { DocumentToc } from "@/components/docs/DocumentToc"
-import { AskIdaSheet } from "@/components/ai/AskIdaSheet"
 import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
+import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
@@ -90,7 +91,7 @@ export function DocumentReadPage() {
   if (!docWithAssets) {
     return (
       <div className="space-y-3 p-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="-ml-2">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/library")} className="-ml-2">
           <ArrowLeft className="mr-1 h-4 w-4" />
           Back to library
         </Button>
@@ -110,65 +111,57 @@ export function DocumentReadPage() {
 
   return (
     <div className="flex h-full flex-col print:block">
-      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b bg-background/95 px-6 py-3 backdrop-blur print:hidden">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate("/")}
-          className="-ml-2"
-        >
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Library
-        </Button>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-muted-foreground">
-            <span className="font-mono text-xs">{docWithAssets.naming_code}</span>
-            <span className="mx-2">·</span>
-            <span>{docWithAssets.title}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <AskIdaSheet
-            scope={{ kind: "doc", id: docWithAssets.id }}
-            variant="outline"
-          />
-          <PublishToPdfDialog
-            documentId={docWithAssets.id}
-            trigger={
+      <div className="print:hidden">
+        <TopBar
+          breadcrumb={[
+            { label: "Library", href: "/library" },
+            { label: `${docWithAssets.naming_code} · ${docWithAssets.title}` },
+          ]}
+        />
+        <PageHeader
+          title={`${docWithAssets.naming_code} · ${docWithAssets.title}`}
+          subtitle={`v${renderedVersionNumber} · ${docWithAssets.status}`}
+          actions={
+            <>
               <Button
                 size="sm"
-                className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
+                variant="outline"
+                onClick={() => window.print()}
               >
-                <FileDown className="h-4 w-4" />
-                Publish to PDF
+                <Printer className="mr-1 h-3.5 w-3.5" />
+                Print
               </Button>
-            }
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => window.print()}
-          >
-            <Printer className="mr-1 h-4 w-4" />
-            Print
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setHistoryOpen(true)}
-          >
-            <History className="mr-1 h-4 w-4" />
-            History
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => navigate(`/docs/${docWithAssets.id}/edit`)}
-          >
-            <Edit className="mr-1 h-4 w-4" />
-            Edit
-          </Button>
-        </div>
-      </header>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setHistoryOpen(true)}
+              >
+                <History className="mr-1 h-3.5 w-3.5" />
+                History
+              </Button>
+              <PublishToPdfDialog
+                documentId={docWithAssets.id}
+                trigger={
+                  <Button
+                    size="sm"
+                    className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    Publish to PDF
+                  </Button>
+                }
+              />
+              <Button
+                size="sm"
+                onClick={() => navigate(`/docs/${docWithAssets.id}/edit`)}
+              >
+                <Edit className="mr-1 h-3.5 w-3.5" />
+                Edit
+              </Button>
+            </>
+          }
+        />
+      </div>
 
       <div className="grid flex-1 gap-6 p-6 lg:grid-cols-[1fr_240px] print:block print:p-0">
         <div className="min-w-0 space-y-4">
