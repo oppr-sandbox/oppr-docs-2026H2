@@ -90,8 +90,12 @@ function useQueryParam(key: string): string | null {
 }
 
 export function DocumentNewPage() {
-  const [, setLocation] = useLocation()
-  const kind = useQueryParam("kind") === "pdf" ? "pdf" : "tiptap"
+  const [pathname, setLocation] = useLocation()
+  const queryKind = useQueryParam("kind")
+  // Path-based kind. Legacy ?kind=pdf still works for backward compat with
+  // any bookmarks; new flow uses /docs/new/compose vs /docs/new/import.
+  const kind: "pdf" | "tiptap" =
+    pathname.endsWith("/import") || queryKind === "pdf" ? "pdf" : "tiptap"
   const create = useMutation(api.documents.create)
   const attachPdf = useMutation(api.documents.attachPdf)
   const generateUploadUrl = useMutation(api.files.generateUploadUrl)
@@ -225,7 +229,8 @@ export function DocumentNewPage() {
       <TopBar
         breadcrumb={[
           { label: "Library", href: "/library" },
-          { label: kind === "pdf" ? "New PDF import" : "New document" },
+          { label: "New document", href: "/docs/new" },
+          { label: kind === "pdf" ? "Import PDF" : "Compose" },
         ]}
       />
       <PageHeader
@@ -236,18 +241,9 @@ export function DocumentNewPage() {
             : "Compose the body, set metadata, and publish v1"
         }
         actions={
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setLocation(kind === "pdf" ? "/docs/new" : "/docs/new?kind=pdf")}
-            >
-              Switch to {kind === "pdf" ? "blank doc" : "PDF import"}
-            </Button>
-            <Button onClick={submit} disabled={submitting} size="sm">
-              {submitting ? "Saving…" : kind === "pdf" ? "Import PDF" : "Create document"}
-            </Button>
-          </>
+          <Button onClick={submit} disabled={submitting} size="sm">
+            {submitting ? "Saving…" : kind === "pdf" ? "Import PDF" : "Create document"}
+          </Button>
         }
       />
 

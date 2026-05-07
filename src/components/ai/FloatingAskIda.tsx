@@ -11,7 +11,7 @@ import type { AskPanelScope } from "./AskPanel"
 function scopeForLocation(loc: string): AskPanelScope | null {
   if (loc === "/settings") return null
   if (loc.startsWith("/analysis")) return null
-  if (loc === "/docs/new") return null
+  if (loc.startsWith("/docs/new")) return null
   if (/^\/docs\/[^/]+\/edit$/.test(loc)) return null
 
   const docMatch = loc.match(/^\/docs\/([^/]+)$/)

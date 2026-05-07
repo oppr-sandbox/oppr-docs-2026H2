@@ -116,7 +116,7 @@ export function DashboardPage() {
                 variant="outline"
                 size="sm"
                 className="h-auto flex-col gap-1 py-3"
-                onClick={() => navigate("/docs/new?kind=pdf")}
+                onClick={() => navigate("/docs/new/import")}
               >
                 <Upload className="h-4 w-4" />
                 <span className="text-xs">Upload PDF</span>

@@ -10,6 +10,7 @@ import { AssetDetailPage } from "@/pages/desktop/AssetDetailPage"
 import { DocumentReadPage } from "@/pages/desktop/DocumentReadPage"
 import { DocumentEditPage } from "@/pages/desktop/DocumentEditPage"
 import { DocumentNewPage } from "@/pages/desktop/DocumentNewPage"
+import { DocumentNewChooserPage } from "@/pages/desktop/DocumentNewChooserPage"
 import { SettingsPage } from "@/pages/desktop/SettingsPage"
 import { ImageLibraryPage } from "@/pages/desktop/ImageLibraryPage"
 import { AnalysisIndexPage } from "@/pages/desktop/AnalysisIndexPage"
@@ -66,7 +67,9 @@ function App() {
               <Route path="/library" component={LibraryPage} />
               <Route path="/assets" component={AssetsPage} />
               <Route path="/assets/:id" component={AssetDetailPage} />
-              <Route path="/docs/new" component={DocumentNewPage} />
+              <Route path="/docs/new" component={DocumentNewChooserPage} />
+              <Route path="/docs/new/compose" component={DocumentNewPage} />
+              <Route path="/docs/new/import" component={DocumentNewPage} />
               <Route path="/docs/:id/edit" component={DocumentEditPage} />
               <Route path="/docs/:id" component={DocumentReadPage} />
               <Route path="/settings" component={SettingsPage} />

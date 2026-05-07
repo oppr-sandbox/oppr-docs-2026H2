@@ -37,10 +37,10 @@ export const ANALYSES: AnalysisMeta[] = [
     slug: "editor-overhaul",
     title: "Editor overhaul — image, toolbar, tables, flow, print",
     area: "Editor",
-    status: "outstanding",
+    status: "in_progress",
     updatedAt: "2026-05-07",
     summary:
-      "Twelve issues from one testing round (broken image preview, link prompt, table widths, toolbar More menu, PDF-import toggle, inconsistent state model, revision block on page 2). Coordinated refresh in 4 phases plus 10 construction-SOP extras.",
+      "Twelve issues from one testing round. P1 (image preview + link dialog + print fidelity) and P2 (toolbar regroup + table resize + image S/M/L) and P3 (creation chooser) shipped. P3 state-model refactor + P4 construction extras still outstanding.",
     Component: EditorOverhaulAnalysis,
   },
   {

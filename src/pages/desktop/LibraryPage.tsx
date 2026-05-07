@@ -154,7 +154,7 @@ export function LibraryPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => navigate("/docs/new?kind=pdf")}
+              onClick={() => navigate("/docs/new/import")}
             >
               <Upload className="mr-1.5 h-3.5 w-3.5" />
               Upload PDF
