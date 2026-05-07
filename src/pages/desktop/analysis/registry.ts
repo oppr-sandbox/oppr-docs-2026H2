@@ -8,6 +8,8 @@ import { TiptapEditorRevampAnalysis } from "./TiptapEditorRevampAnalysis"
 import { GapAnalysis } from "./GapAnalysis"
 import { EditorPublishFlowAnalysis } from "./EditorPublishFlowAnalysis"
 import { FrontendToConvexMigrationAnalysis } from "./FrontendToConvexMigrationAnalysis"
+import { PageHeaderSpecAnalysis } from "./PageHeaderSpecAnalysis"
+import { ImageLibraryAnalysis } from "./ImageLibraryAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -17,6 +19,7 @@ export type AnalysisArea =
   | "Architecture"
   | "Strategy"
   | "Migration"
+  | "IA"
 
 export interface AnalysisMeta {
   slug: string
@@ -29,6 +32,26 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "page-header-spec",
+    title: "Page header spec — TopBar, PageHeader, floating Ask IDA",
+    area: "IA",
+    status: "outstanding",
+    updatedAt: "2026-05-07",
+    summary:
+      "Two-tier header system after the IA overhaul exposed an over-stuffed TopBar. Per-page decision table and floating Ask IDA proposal — review before we refactor every page.",
+    Component: PageHeaderSpecAnalysis,
+  },
+  {
+    slug: "image-library",
+    title: "Image library — upload flow + repository",
+    area: "Editor",
+    status: "outstanding",
+    updatedAt: "2026-05-07",
+    summary:
+      "Replaces the window.prompt URL flow with an Upload + URL modal. Adds an `images` + `imageUsages` schema, a /images repo page, and a backfill action — review before we touch the schema.",
+    Component: ImageLibraryAnalysis,
+  },
   {
     slug: "frontend-to-convex-migration",
     title: "Frontend → Convex migration",

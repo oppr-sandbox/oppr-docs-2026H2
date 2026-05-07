@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Separator } from "@/components/ui/separator"
 
 type NavItem = {
   label: string
@@ -37,6 +38,9 @@ const NAV: NavItem[] = [
     icon: Boxes,
     match: (p) => p.startsWith("/assets"),
   },
+]
+
+const META_NAV: NavItem[] = [
   {
     label: "Analysis",
     to: "/analysis",
@@ -99,6 +103,8 @@ export function DesktopShell({ children }: { children: ReactNode }) {
             )
           })}
 
+          <Separator className="my-3 bg-sidebar-border" />
+
           <button
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-border/40 hover:text-sidebar-foreground"
             onClick={openMobileWindow}
@@ -109,6 +115,28 @@ export function DesktopShell({ children }: { children: ReactNode }) {
               Open
             </span>
           </button>
+
+          <Separator className="my-3 bg-sidebar-border" />
+
+          {META_NAV.map((item) => {
+            const Icon = item.icon
+            const active = item.match(location)
+            return (
+              <Link
+                key={item.to}
+                href={item.to}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-border/40 hover:text-sidebar-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+            )
+          })}
         </nav>
 
         <div className="space-y-1 border-t border-sidebar-border p-3">
