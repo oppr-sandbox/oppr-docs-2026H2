@@ -8,7 +8,16 @@ import {
   type ReactNode,
 } from "react"
 import { useLocation, useRoute, useSearch } from "wouter"
-import { Copy, FileDown, Maximize2, Share2, Star, X } from "lucide-react"
+import {
+  AlertTriangle,
+  Copy,
+  FileDown,
+  Home,
+  Maximize2,
+  Share2,
+  Star,
+  X,
+} from "lucide-react"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
@@ -21,6 +30,7 @@ import { AskFloatingButton } from "@/components/mobile/AskFloatingButton"
 import { extractPpeItems } from "@/components/docs/DocumentHero"
 import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
 import {
+  looksLikeConvexId,
   usePinned,
   useRecentlyViewed,
 } from "@/components/mobile/use-mobile-prefs"
@@ -76,9 +86,22 @@ export function MobileDocPage() {
   const id = params?.id ?? ""
   const search = useSearch()
   const [, navigate] = useLocation()
-  const { isPinned, togglePin } = usePinned()
-  const { pushRecent } = useRecentlyViewed()
+  const { isPinned, togglePin, removePin } = usePinned()
+  const { pushRecent, removeRecent } = useRecentlyViewed()
   const [fullscreen, setFullscreen] = useState(false)
+
+  // Defensive pre-check — pre-Convex localStorage entries (doc-1, asset-2, …)
+  // would otherwise crash Convex's v.id() validator with an
+  // ArgumentValidationError that escapes the inner Suspense boundary and
+  // blanks the page. Skip the queries (they require typed ids) and render
+  // the recovery UI in the return below.
+  const idIsConvexShaped = looksLikeConvexId(id)
+  useEffect(() => {
+    if (!idIsConvexShaped && id) {
+      removePin("doc", id)
+      removeRecent("doc", id)
+    }
+  }, [idIsConvexShaped, id, removePin, removeRecent])
 
   const initialPage = useMemo(() => {
     const p = new URLSearchParams(search).get("page")
@@ -89,12 +112,12 @@ export function MobileDocPage() {
 
   const docResult = useQuery(
     api.documents.getWithAssets,
-    id ? { id: id as Id<"documents"> } : "skip",
+    id && idIsConvexShaped ? { id: id as Id<"documents"> } : "skip",
   )
-  const ready = docResult !== undefined
+  const ready = idIsConvexShaped ? docResult !== undefined : true
   const currentVersion = useQuery(
     api.documents.getCurrentVersion,
-    id ? { documentId: id as Id<"documents"> } : "skip",
+    id && idIsConvexShaped ? { documentId: id as Id<"documents"> } : "skip",
   )
   const pdfUrl = useQuery(
     api.files.getUrl,
@@ -139,6 +162,33 @@ export function MobileDocPage() {
     })
   }, [doc, pushRecent])
 
+  if (!idIsConvexShaped) {
+    return (
+      <div className="flex h-full flex-col">
+        <MobileHeader backTo="/m" title="Document not found" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="text-sm font-semibold">
+            This document is no longer available
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Removed from Pinned and Recently viewed.
+          </div>
+          <Button
+            size="sm"
+            className="mt-2 gap-1.5"
+            onClick={() => navigate("/m")}
+          >
+            <Home className="h-3.5 w-3.5" />
+            Back to home
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (!ready) {
     return (
       <div className="flex flex-col">
@@ -153,10 +203,32 @@ export function MobileDocPage() {
 
   if (!doc) {
     return (
-      <div className="flex flex-col">
-        <MobileHeader backTo="/m/docs" title="Not found" />
-        <div className="p-4 text-sm text-muted-foreground">
-          Document not found.
+      <div className="flex h-full flex-col">
+        <MobileHeader backTo="/m" title="Document not found" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="text-sm font-semibold">
+            This document is no longer available
+          </div>
+          <div className="text-xs text-muted-foreground">
+            It may have been deleted since you last opened it.
+          </div>
+          <Button
+            size="sm"
+            className="mt-2 gap-1.5"
+            onClick={() => {
+              if (id) {
+                removePin("doc", id)
+                removeRecent("doc", id)
+              }
+              navigate("/m")
+            }}
+          >
+            <Home className="h-3.5 w-3.5" />
+            Back to home
+          </Button>
         </div>
       </div>
     )
@@ -201,7 +273,7 @@ export function MobileDocPage() {
             variant="ghost"
             size="icon"
             aria-label={pinned ? "Unpin document" : "Pin document"}
-            className="h-10 w-10"
+            className="h-9 w-9"
             onClick={() =>
               togglePin({
                 kind: "doc",
@@ -213,7 +285,7 @@ export function MobileDocPage() {
           >
             <Star
               className={cn(
-                "h-5 w-5",
+                "h-4 w-4",
                 pinned ? "fill-amber-500 text-amber-500" : "",
               )}
             />
@@ -222,32 +294,32 @@ export function MobileDocPage() {
       />
 
       {/* Quick actions */}
-      <div className="sticky top-[60px] z-[5] flex items-center gap-1 border-b bg-background/95 px-2 py-1.5 backdrop-blur">
+      <div className="sticky top-[44px] z-[5] flex items-center gap-0.5 border-b bg-background/95 px-1.5 py-1 backdrop-blur">
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 text-xs"
+          className="h-7 gap-1 px-1.5 text-[10px]"
           onClick={handleCopy}
         >
-          <Copy className="h-3.5 w-3.5" />
+          <Copy className="h-3 w-3" />
           Copy code
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 text-xs"
+          className="h-7 gap-1 px-1.5 text-[10px]"
           onClick={() => setFullscreen(true)}
         >
-          <Maximize2 className="h-3.5 w-3.5" />
+          <Maximize2 className="h-3 w-3" />
           Full
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 text-xs"
+          className="h-7 gap-1 px-1.5 text-[10px]"
           onClick={handleShare}
         >
-          <Share2 className="h-3.5 w-3.5" />
+          <Share2 className="h-3 w-3" />
           Share
         </Button>
         <PublishToPdfDialog
@@ -256,16 +328,16 @@ export function MobileDocPage() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 text-xs text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+              className="h-7 gap-1 px-1.5 text-[10px] text-orange-600 hover:bg-orange-50 hover:text-orange-700"
             >
-              <FileDown className="h-3.5 w-3.5" />
+              <FileDown className="h-3 w-3" />
               PDF
             </Button>
           }
         />
       </div>
 
-      <div className="flex flex-col p-4 pb-24">
+      <div className="flex flex-col p-3 pb-20">
         <MobileDocSummary
           assets={doc.assets}
           ppeItems={

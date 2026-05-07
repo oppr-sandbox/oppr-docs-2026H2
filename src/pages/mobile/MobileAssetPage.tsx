@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useLocation, useRoute } from "wouter"
-import { FileText, Map as MapIcon, MapPin, Star } from "lucide-react"
+import {
+  AlertTriangle,
+  FileText,
+  Home,
+  Map as MapIcon,
+  MapPin,
+  Star,
+} from "lucide-react"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
@@ -16,6 +23,7 @@ import { MobileDocCard } from "@/components/mobile/MobileDocCard"
 import { AskFloatingButton } from "@/components/mobile/AskFloatingButton"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import {
+  looksLikeConvexId,
   usePinned,
   useRecentlyViewed,
 } from "@/components/mobile/use-mobile-prefs"
@@ -26,15 +34,23 @@ export function MobileAssetPage() {
   const [, params] = useRoute<{ id: string }>("/m/assets/:id")
   const id = params?.id ?? ""
   const [, navigate] = useLocation()
-  const { isPinned, togglePin } = usePinned()
-  const { pushRecent } = useRecentlyViewed()
+  const { isPinned, togglePin, removePin } = usePinned()
+  const { pushRecent, removeRecent } = useRecentlyViewed()
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
+
+  const idIsConvexShaped = looksLikeConvexId(id)
+  useEffect(() => {
+    if (!idIsConvexShaped && id) {
+      removePin("asset", id)
+      removeRecent("asset", id)
+    }
+  }, [idIsConvexShaped, id, removePin, removeRecent])
 
   const result = useQuery(
     api.assets.getWithDocs,
-    id ? { id: id as Id<"assets"> } : "skip",
+    id && idIsConvexShaped ? { id: id as Id<"assets"> } : "skip",
   )
-  const ready = result !== undefined
+  const ready = idIsConvexShaped ? result !== undefined : true
   const asset = useMemo(
     () => (result ? toLegacyAsset(result.asset) : null),
     [result],
@@ -59,6 +75,33 @@ export function MobileAssetPage() {
     })
   }, [asset, pushRecent])
 
+  if (!idIsConvexShaped) {
+    return (
+      <div className="flex h-full flex-col">
+        <MobileHeader backTo="/m" title="Asset not found" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="text-sm font-semibold">
+            This asset is no longer available
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Removed from Pinned and Recently viewed.
+          </div>
+          <Button
+            size="sm"
+            className="mt-2 gap-1.5"
+            onClick={() => navigate("/m")}
+          >
+            <Home className="h-3.5 w-3.5" />
+            Back to home
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (!ready) {
     return (
       <div className="flex flex-col">
@@ -74,10 +117,32 @@ export function MobileAssetPage() {
 
   if (!asset) {
     return (
-      <div className="flex flex-col">
-        <MobileHeader backTo="/m/assets" title="Not found" />
-        <div className="p-4 text-sm text-muted-foreground">
-          Asset not found.
+      <div className="flex h-full flex-col">
+        <MobileHeader backTo="/m" title="Asset not found" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="text-sm font-semibold">
+            This asset is no longer available
+          </div>
+          <div className="text-xs text-muted-foreground">
+            It may have been deleted since you last opened it.
+          </div>
+          <Button
+            size="sm"
+            className="mt-2 gap-1.5"
+            onClick={() => {
+              if (id) {
+                removePin("asset", id)
+                removeRecent("asset", id)
+              }
+              navigate("/m")
+            }}
+          >
+            <Home className="h-3.5 w-3.5" />
+            Back to home
+          </Button>
         </div>
       </div>
     )

@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as admin from "../admin.js";
 import type * as ai_ask from "../ai/ask.js";
 import type * as ai_constants from "../ai/constants.js";
 import type * as ai_embed from "../ai/embed.js";
@@ -34,6 +35,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  admin: typeof admin;
   "ai/ask": typeof ai_ask;
   "ai/constants": typeof ai_constants;
   "ai/embed": typeof ai_embed;

@@ -29,6 +29,7 @@ import {
   Send,
   Square,
   Trash2,
+  Type,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Asset, AssetLog, Citation, Doc, QaMessage } from "@/types"
@@ -42,6 +43,7 @@ import {
 } from "@/lib/convex-adapters"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { useChatSize, type ChatSize } from "@/components/mobile/use-mobile-prefs"
 import { cn } from "@/lib/utils"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { MessageContent } from "./MessageContent"
@@ -50,6 +52,69 @@ import { RelatedRail } from "./RelatedRail"
 import { StarterPrompts } from "./StarterPrompts"
 import { ScopeChip } from "./ScopeChip"
 import { ClearChatDialog } from "./ClearChatDialog"
+
+// Mobile font-size dial. Mounted in the AskPanel header when `compact`.
+const CHAT_SIZE_CLASS: Record<ChatSize, string> = {
+  sm: "text-[12px] leading-snug",
+  md: "text-[14px] leading-relaxed",
+  lg: "text-[16px] leading-relaxed",
+}
+
+function ChatSizeToggle({
+  value,
+  onChange,
+}: {
+  value: ChatSize
+  onChange: (s: ChatSize) => void
+}) {
+  return (
+    <div
+      className="flex items-center gap-0.5 rounded-md border bg-muted/40 px-0.5"
+      title="Adjust message text size"
+    >
+      <Type className="ml-0.5 h-2.5 w-2.5 text-muted-foreground" />
+      <button
+        type="button"
+        onClick={() => onChange("sm")}
+        className={cn(
+          "rounded px-1 text-[8px] font-semibold transition-colors",
+          value === "sm"
+            ? "bg-background shadow-sm text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+        aria-label="Smaller text"
+      >
+        A
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("md")}
+        className={cn(
+          "rounded px-1 text-[10px] font-semibold transition-colors",
+          value === "md"
+            ? "bg-background shadow-sm text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+        aria-label="Default text size"
+      >
+        A
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("lg")}
+        className={cn(
+          "rounded px-1 text-[12px] font-semibold transition-colors",
+          value === "lg"
+            ? "bg-background shadow-sm text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+        aria-label="Larger text"
+      >
+        A
+      </button>
+    </div>
+  )
+}
 
 interface SpeechRecognitionInstance {
   lang: string
@@ -110,8 +175,10 @@ export function AskPanel({
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const authToken = useAuthToken()
+  const { size: chatSize, setSize: setChatSize } = useChatSize()
 
   const scopeKindArg = scope.kind
   const scopeIdArg = scope.kind === "library" ? "library" : scope.id
@@ -141,6 +208,22 @@ export function AskPanel({
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, pending, streamingText])
+
+  // Autosize the composer textarea so dictated / pasted text stays in view.
+  // Cap at 6 lines so the input never eats the entire viewport on mobile;
+  // scroll internally beyond that.
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = "auto"
+    const cs = window.getComputedStyle(el)
+    const lineHeight = parseFloat(cs.lineHeight) || 18
+    const padTop = parseFloat(cs.paddingTop) || 0
+    const padBot = parseFloat(cs.paddingBottom) || 0
+    const max = lineHeight * 6 + padTop + padBot
+    el.style.height = Math.min(el.scrollHeight, max) + "px"
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden"
+  }, [input])
 
   function handleScopeChange(next: AskPanelScope) {
     if (next.kind === scope.kind) {
@@ -464,7 +547,10 @@ export function AskPanel({
       <header className="space-y-1.5 border-b px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Ask IDA</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {compact && (
+              <ChatSizeToggle value={chatSize} onChange={setChatSize} />
+            )}
             {messages.length > 0 && (
               <Button
                 type="button"
@@ -493,7 +579,7 @@ export function AskPanel({
         ref={scrollRef}
         className={cn(
           "flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3",
-          compact ? "text-sm" : "text-sm",
+          compact ? CHAT_SIZE_CLASS[chatSize] : "text-sm",
         )}
       >
         {visibleMessages.length === 0 && !pending && (
@@ -557,6 +643,8 @@ export function AskPanel({
       <div className="border-t p-2">
         <div className="flex items-end gap-2">
           <Textarea
+            ref={taRef}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -567,7 +655,10 @@ export function AskPanel({
             }}
             placeholder="Ask a question…"
             disabled={pending}
-            className={cn("resize-none", compact ? "min-h-[48px]" : "min-h-[60px]")}
+            className={cn(
+              "resize-none overflow-hidden",
+              compact ? "min-h-[36px] py-2 text-[13px]" : "min-h-[40px] text-sm",
+            )}
           />
           <div className="flex flex-col gap-1">
             <Button

@@ -97,6 +97,40 @@ export const get = query({
   },
 })
 
+// Resolve a batch of arbitrary string ids against the assets table without
+// throwing on malformed input. See documents.resolveMany for context.
+export const resolveMany = query({
+  args: { ids: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const results: Array<{
+      id: string
+      exists: boolean
+      code?: string
+      name?: string
+    }> = []
+    for (const raw of args.ids) {
+      const typed = ctx.db.normalizeId("assets", raw)
+      if (!typed) {
+        results.push({ id: raw, exists: false })
+        continue
+      }
+      const asset = await ctx.db.get(typed)
+      if (!asset) {
+        results.push({ id: raw, exists: false })
+        continue
+      }
+      results.push({
+        id: raw,
+        exists: true,
+        code: asset.code,
+        name: asset.name,
+      })
+    }
+    return results
+  },
+})
+
 export const getByQrToken = query({
   args: { qrToken: v.string() },
   handler: async (ctx, args) => {

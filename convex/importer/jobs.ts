@@ -147,6 +147,7 @@ export const recordExtraction = mutation({
       jpegImages: v.number(),
       pngImages: v.number(),
     }),
+    structuredDoc: v.optional(v.union(v.any(), v.null())),
   },
   handler: async (ctx, args) => {
     await requireUserId(ctx)
@@ -158,6 +159,7 @@ export const recordExtraction = mutation({
       extractedPages: args.extractedPages,
       extractedImageIds: args.extractedImageIds,
       extractStats: args.extractStats,
+      structuredDoc: args.structuredDoc ?? null,
       stage: args.classification.kind === "unsupported" ? "failed" : "extracted",
       error:
         args.classification.kind === "unsupported"
@@ -223,8 +225,15 @@ export const resolveLinks = mutation({
     await requireUserId(ctx)
     const job = await ctx.db.get(args.jobId)
     if (!job) throw new Error("Job not found")
-    if (job.stage !== "mapped" && job.stage !== "linksResolved") {
-      throw new Error(`Job is not mapped (stage=${job.stage})`)
+    // Permit "extracted" too — the new pipeline can advance straight to
+    // links once the StructuredDoc is recorded; the explicit AI mapping
+    // pass is now optional.
+    if (
+      job.stage !== "mapped" &&
+      job.stage !== "linksResolved" &&
+      job.stage !== "extracted"
+    ) {
+      throw new Error(`Job is not ready for link resolution (stage=${job.stage})`)
     }
 
     const mappedAny = (job.mappedBody ?? job.mappedLogSpec) as
@@ -233,8 +242,22 @@ export const resolveLinks = mutation({
           detectedDocs?: string[]
         }
       | null
-    const detectedAssets = mappedAny?.detectedAssets ?? []
-    const detectedDocs = mappedAny?.detectedDocs ?? []
+    const sd = job.structuredDoc as
+      | {
+          linkedAssets?: { code: string }[]
+          linkedDocs?: { code?: string | null; title?: string | null }[]
+        }
+      | null
+    // Prefer the StructuredDoc's deterministic lists; fall back to the
+    // legacy detectedAssets/detectedDocs from the AI mapper for older jobs.
+    const detectedAssets =
+      (sd?.linkedAssets ?? []).map((a) => a.code).filter((c): c is string => Boolean(c))
+        .concat((mappedAny?.detectedAssets ?? []).filter((c) => !!c))
+    const detectedDocs =
+      (sd?.linkedDocs ?? [])
+        .map((d) => d.code ?? d.title)
+        .filter((s): s is string => Boolean(s))
+        .concat((mappedAny?.detectedDocs ?? []).filter((c) => !!c))
 
     const allDocs = await ctx.db.query("documents").take(2000)
     const allAssets = await ctx.db.query("assets").take(2000)

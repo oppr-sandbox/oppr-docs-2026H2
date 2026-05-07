@@ -97,6 +97,43 @@ export const get = query({
   },
 })
 
+// Resolve a batch of arbitrary string ids against the documents table without
+// throwing on malformed input. Used by the mobile home to detect Pinned /
+// Recent entries that point at deleted (or pre-Convex) documents and surface
+// a Remove affordance instead of crashing the reader. Returns one entry per
+// input id in the same order.
+export const resolveMany = query({
+  args: { ids: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const results: Array<{
+      id: string
+      exists: boolean
+      namingCode?: string
+      title?: string
+    }> = []
+    for (const raw of args.ids) {
+      const typed = ctx.db.normalizeId("documents", raw)
+      if (!typed) {
+        results.push({ id: raw, exists: false })
+        continue
+      }
+      const doc = await ctx.db.get(typed)
+      if (!doc) {
+        results.push({ id: raw, exists: false })
+        continue
+      }
+      results.push({
+        id: raw,
+        exists: true,
+        namingCode: doc.namingCode,
+        title: doc.title,
+      })
+    }
+    return results
+  },
+})
+
 export const getWithAssets = query({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
@@ -527,6 +564,14 @@ export const remove = mutation({
       )
       .take(500)
     for (const r of logRefs) await ctx.db.delete(r._id)
+
+    const usages = await ctx.db
+      .query("imageUsages")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id),
+      )
+      .take(2000)
+    for (const u of usages) await ctx.db.delete(u._id)
 
     await ctx.db.delete(args.id)
   },

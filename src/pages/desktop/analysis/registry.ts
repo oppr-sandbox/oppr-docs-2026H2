@@ -13,6 +13,9 @@ import { ImageLibraryAnalysis } from "./ImageLibraryAnalysis"
 import { EditorOverhaulAnalysis } from "./EditorOverhaulAnalysis"
 import { ExternalDocumentImporterAnalysis } from "./ExternalDocumentImporterAnalysis"
 import { ImporterPipelineDebugAnalysis } from "./ImporterPipelineDebugAnalysis"
+import { EddycurrentImporterWalkthroughAnalysis } from "./EddycurrentImporterWalkthroughAnalysis"
+import { EddycurrentImporterWalkthroughV2Analysis } from "./EddycurrentImporterWalkthroughV2Analysis"
+import { MobileRevampAnalysis } from "./MobileRevampAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -35,6 +38,36 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "mobile-revamp",
+    title: "Mobile interface revamp",
+    area: "IA",
+    status: "done",
+    updatedAt: "2026-05-07",
+    summary:
+      "Six issues from a fresh-DB walkthrough of /m: hard crash on stale localStorage IDs after wipe (doc-1 trips Convex v.id validator), oversized icons + spacing for a 430-wide phone, PPE chips with no detail-on-tap, IDA chat at desktop font density, textarea that doesn't follow voice-transcribed text, and a holistic IA review of the home + reader. All seven plan steps shipped: looksLikeConvexId fence + soft-404 recovery, documents.resolveMany + assets.resolveMany + Clear all, density pass for shell/header/reader, PPE Popover with label + description, A−/A+ font-size dial in AskPanel, autosizing textarea, search-first home + duplicate disambiguation.",
+    Component: MobileRevampAnalysis,
+  },
+  {
+    slug: "eddycurrent-importer-walkthrough-v2",
+    title: "Eddycurrent SOP — importer run #2",
+    area: "Strategy",
+    status: "done",
+    updatedAt: "2026-05-07",
+    summary:
+      "Run #2 of UP-OPS-SOP-010 after the StructuredDoc intermediate landed. Body is now structurally faithful. All four issues from the run shipped: dropped COEP/COOP from vite dev server (image thumbnails load again); cross-link Accept-disabled replaced with explicit \"No match in library\" + \"Will skip\" + empty-library banner; documents.remove now sweeps imageUsages on delete; image library has a checkbox selection model with shift-click range, sticky action bar, removeMany mutation with refused-list confirmation dialog, and a Group-by-document view with synthetic Shared/per-doc/Orphans groups.",
+    Component: EddycurrentImporterWalkthroughV2Analysis,
+  },
+  {
+    slug: "eddycurrent-importer-walkthrough",
+    title: "Eddycurrent SOP — full importer walkthrough",
+    area: "Strategy",
+    status: "in_progress",
+    updatedAt: "2026-05-07",
+    summary:
+      "Real customer PDF (UP-OPS-SOP-010, 6 pages, 14 embedded screenshots) pushed end-to-end through /import. Pipeline finished but lost ~all structure: no headings, no PPE block, no tables, no inline images, no asset/log/cross-doc links. Maps every stage stage-by-stage with screenshots, pinpoints three independent failure modes, and proposes a typed StructuredDoc JSON intermediate + deterministic renderers as the path forward.",
+    Component: EddycurrentImporterWalkthroughAnalysis,
+  },
   {
     slug: "importer-pipeline-debug",
     title: "Importer pipeline debug — broken images + empty body",

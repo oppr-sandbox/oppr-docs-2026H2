@@ -31,7 +31,7 @@ export function MobileHeader({
   const showBack = onBack != null || backTo !== null
 
   return (
-    <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-3 py-3 backdrop-blur">
+    <header className="sticky top-0 z-10 flex items-center gap-1.5 border-b bg-background/95 px-2 py-2 backdrop-blur">
       {showBack ? (
         <button
           type="button"
@@ -43,22 +43,26 @@ export function MobileHeader({
             if (backTo) navigate(backTo)
           }}
           aria-label="Back"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted active:scale-95"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted active:scale-95"
         >
-          <ChevronLeft className="h-6 w-6" />
+          <ChevronLeft className="h-5 w-5" />
         </button>
       ) : (
-        <div className="h-11 w-2 shrink-0" />
+        <div className="h-9 w-1.5 shrink-0" />
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="truncate text-base font-semibold leading-tight text-foreground">
+        <div className="truncate text-[13px] font-semibold leading-tight text-foreground">
           {title}
         </div>
         {subtitle && (
-          <div className="truncate text-xs text-muted-foreground">{subtitle}</div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {subtitle}
+          </div>
         )}
       </div>
-      {right ? <div className="flex shrink-0 items-center gap-1">{right}</div> : null}
+      {right ? (
+        <div className="flex shrink-0 items-center gap-0.5">{right}</div>
+      ) : null}
     </header>
   )
 }

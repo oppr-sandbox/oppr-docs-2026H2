@@ -45,18 +45,51 @@ export type PpeItem =
 
 interface PpeMeta {
   label: string
+  description: string
   icon: typeof HardHat
 }
 
 export const PPE_META: Record<PpeItem, PpeMeta> = {
-  hardhat: { label: "Hard hat", icon: HardHat },
-  glasses: { label: "Safety glasses", icon: Glasses },
-  gloves: { label: "Gloves", icon: Shield },
-  boots: { label: "Safety boots", icon: Footprints },
-  "hi-vis": { label: "Hi-vis vest", icon: Shirt },
-  "ear-pro": { label: "Ear protection", icon: Ear },
-  mask: { label: "Respirator", icon: Wind },
-  "dust-mask": { label: "Dust mask", icon: Wind },
+  hardhat: {
+    label: "Hard hat",
+    description: "Protects head from falling objects and impacts.",
+    icon: HardHat,
+  },
+  glasses: {
+    label: "Safety glasses",
+    description: "Eye protection from dust, splashes, and debris.",
+    icon: Glasses,
+  },
+  gloves: {
+    label: "Gloves",
+    description: "Hand protection against cuts, abrasion, contaminants.",
+    icon: Shield,
+  },
+  boots: {
+    label: "Safety boots",
+    description: "Steel-toe with anti-slip soles. Required on the floor.",
+    icon: Footprints,
+  },
+  "hi-vis": {
+    label: "Hi-vis vest",
+    description: "Required wherever forklifts or vehicles operate.",
+    icon: Shirt,
+  },
+  "ear-pro": {
+    label: "Ear protection",
+    description: "Required in zones above 85 dB(A).",
+    icon: Ear,
+  },
+  mask: {
+    label: "Respirator",
+    description: "Particulate / vapour filtration as specified per task.",
+    icon: Wind,
+  },
+  "dust-mask": {
+    label: "Dust mask",
+    description: "Disposable dust mask for non-toxic particulates.",
+    icon: Wind,
+  },
 }
 
 const PPE_ORDER: PpeItem[] = [

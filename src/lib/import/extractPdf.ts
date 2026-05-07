@@ -33,6 +33,36 @@ export interface ExtractedPage {
   text: string
 }
 
+// Positional layout item — preserved from pdfjs' transform matrix so we can
+// reconstruct 2D rows for table detection. x grows right, y grows up.
+export interface LayoutTextItem {
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+  fontSize: number
+  fontName: string
+}
+
+export interface LayoutImageRef {
+  pageImageIndex: number // index into the page's image XObject ops
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface PageLayout {
+  pageNumber: number
+  pageWidth: number
+  pageHeight: number
+  items: LayoutTextItem[]
+  // y-coordinate clusters of items, top-down ordered. Each row is sorted by x.
+  rows: LayoutTextItem[][]
+  images: LayoutImageRef[]
+}
+
 export interface ExtractedImage {
   blob: Blob
   width: number
@@ -57,6 +87,7 @@ export interface ExtractResult {
   classification: ImporterClassification
   markdown: string
   pages: ExtractedPage[]
+  pageLayouts: PageLayout[]
   images: ExtractedImage[]
   stats: ExtractStats
 }
@@ -75,6 +106,7 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
       },
       markdown: "",
       pages: [],
+      pageLayouts: [],
       images: [],
       stats: emptyStats(),
     }
@@ -85,6 +117,7 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
   const pdf = await pdfjs.getDocument({ data: bytes.slice() }).promise
 
   const pages: ExtractedPage[] = []
+  const pageLayouts: PageLayout[] = []
   const images: ExtractedImage[] = []
   const seenSha = new Set<string>()
   const stats = emptyStats()
@@ -108,8 +141,12 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
       str: string
       hasEOL?: boolean
       transform?: number[]
+      width?: number
+      height?: number
+      fontName?: string
     }>
     const lines: string[] = []
+    const layoutItems: LayoutTextItem[] = []
     let buffer = ""
     for (const it of items) {
       buffer += it.str
@@ -118,6 +155,24 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
         buffer = ""
       } else {
         buffer += " "
+      }
+      const t = it.transform
+      if (
+        t &&
+        t.length >= 6 &&
+        typeof it.str === "string" &&
+        it.str.length > 0
+      ) {
+        const fontSize = Math.abs(t[3] ?? t[0] ?? 0)
+        layoutItems.push({
+          text: it.str,
+          x: t[4] ?? 0,
+          y: t[5] ?? 0,
+          width: it.width ?? 0,
+          height: it.height ?? fontSize,
+          fontSize,
+          fontName: it.fontName ?? "",
+        })
       }
     }
     if (buffer.trim().length > 0) lines.push(buffer.trim())
@@ -153,6 +208,7 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
 
     let pageImageDetected = 0
     let pageImageExtracted = 0
+    const layoutImages: LayoutImageRef[] = []
 
     if (images.length < MAX_IMAGES) {
       try {
@@ -187,6 +243,13 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
           if (seenSha.has(sha)) continue
           seenSha.add(sha)
           images.push({ ...extracted, sha256: sha })
+          layoutImages.push({
+            pageImageIndex: pageImageExtracted,
+            x: 0,
+            y: 0,
+            width: extracted.width,
+            height: extracted.height,
+          })
           pageImageExtracted += 1
           if (extracted.contentType === "image/jpeg") stats.jpegImages += 1
           else stats.pngImages += 1
@@ -235,6 +298,15 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
       }
     }
 
+    pageLayouts.push({
+      pageNumber,
+      pageWidth: viewport.width,
+      pageHeight: viewport.height,
+      items: layoutItems,
+      rows: clusterRows(layoutItems),
+      images: layoutImages,
+    })
+
     page.cleanup()
   }
 
@@ -254,9 +326,42 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
     },
     markdown,
     pages,
+    pageLayouts,
     images,
     stats,
   }
+}
+
+// Group layout items into rows by y-coordinate. Items with close-enough y
+// belong to the same row. Tolerance is half the median item height so we
+// recover row groupings reliably across normal fontsize variations.
+export function clusterRows(items: LayoutTextItem[]): LayoutTextItem[][] {
+  if (items.length === 0) return []
+  const heights = items.map((i) => i.height || i.fontSize || 10).sort((a, b) => a - b)
+  const median = heights[Math.floor(heights.length / 2)] || 10
+  const tol = Math.max(2, median * 0.5)
+
+  // Sort top-down (high y first since y grows up in PDF space).
+  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x)
+  const rows: LayoutTextItem[][] = []
+  let currentRow: LayoutTextItem[] = []
+  let currentY: number | null = null
+  for (const it of sorted) {
+    if (currentY === null || Math.abs(it.y - currentY) <= tol) {
+      currentRow.push(it)
+      currentY = currentY === null ? it.y : currentY
+    } else {
+      currentRow.sort((a, b) => a.x - b.x)
+      rows.push(currentRow)
+      currentRow = [it]
+      currentY = it.y
+    }
+  }
+  if (currentRow.length > 0) {
+    currentRow.sort((a, b) => a.x - b.x)
+    rows.push(currentRow)
+  }
+  return rows
 }
 
 function emptyStats(): ExtractStats {

@@ -11,20 +11,49 @@ import { walkBodyImages } from "./lib/imageWalker"
 
 const sourceValidator = v.union(v.literal("upload"), v.literal("url"))
 
-async function attachUsageCounts(
+type ImageDocRef = {
+  documentId: Id<"documents">
+  namingCode: string
+  title: string
+}
+
+async function attachUsageRefs(
   ctx: QueryCtx,
   images: Doc<"images">[],
-): Promise<Array<Doc<"images"> & { usageCount: number }>> {
-  const counts = await Promise.all(
+): Promise<
+  Array<
+    Doc<"images"> & { usageCount: number; documentRefs: ImageDocRef[] }
+  >
+> {
+  const refs = await Promise.all(
     images.map(async (img) => {
-      const rows = await ctx.db
+      const usages = await ctx.db
         .query("imageUsages")
         .withIndex("by_imageId", (q) => q.eq("imageId", img._id))
         .collect()
-      return rows.length
+      const seen = new Set<string>()
+      const out: ImageDocRef[] = []
+      for (const u of usages) {
+        const key = String(u.documentId)
+        if (seen.has(key)) continue
+        seen.add(key)
+        const doc = await ctx.db.get(u.documentId)
+        if (!doc) continue
+        out.push({
+          documentId: doc._id,
+          namingCode: doc.namingCode,
+          title: doc.title,
+        })
+      }
+      out.sort((a, b) => a.namingCode.localeCompare(b.namingCode))
+      return out
     }),
   )
-  return images.map((img, i) => ({ ...img, usageCount: counts[i] }))
+  return images.map((img, i) => ({
+    ...img,
+    usageCount: refs[i].length,
+    documentRefs: refs[i],
+  }))
 }
 
 export const list = query({
@@ -46,10 +75,10 @@ export const list = query({
       )
     }
     rows.sort((a, b) => b.createdAt - a.createdAt)
-    const withCounts = await attachUsageCounts(ctx, rows)
+    const withRefs = await attachUsageRefs(ctx, rows)
     return args.onlyOrphans
-      ? withCounts.filter((r) => r.usageCount === 0)
-      : withCounts
+      ? withRefs.filter((r) => r.usageCount === 0)
+      : withRefs
   },
 })
 
@@ -271,6 +300,37 @@ export const remove = mutation({
     }
     if (img.storageId) await ctx.storage.delete(img.storageId)
     await ctx.db.delete(args.id)
+  },
+})
+
+export const removeMany = mutation({
+  args: { ids: v.array(v.id("images")) },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const ok: Id<"images">[] = []
+    const refused: Array<{ id: Id<"images">; reason: string }> = []
+    for (const id of args.ids) {
+      const img = await ctx.db.get(id)
+      if (!img) {
+        refused.push({ id, reason: "not found" })
+        continue
+      }
+      const usages = await ctx.db
+        .query("imageUsages")
+        .withIndex("by_imageId", (q) => q.eq("imageId", id))
+        .collect()
+      if (usages.length > 0) {
+        refused.push({
+          id,
+          reason: `used in ${usages.length} document${usages.length === 1 ? "" : "s"}`,
+        })
+        continue
+      }
+      if (img.storageId) await ctx.storage.delete(img.storageId)
+      await ctx.db.delete(id)
+      ok.push(id)
+    }
+    return { ok, refused }
   },
 })
 

@@ -63,6 +63,9 @@ import {
   extractBodyContent,
   sanitizeNodes,
 } from "@/lib/import/sanitizeTiptap"
+import { buildFirstPass } from "@/lib/import/firstPass"
+import { renderToTiptap } from "@/lib/import/renderToTiptap"
+import { validateStructuredDoc, type StructuredDoc } from "@/lib/import/structuredDoc"
 
 const TARGET_OPTIONS = [
   {
@@ -217,6 +220,18 @@ function NewImport() {
         defaultMode: mode,
       })
 
+      const firstPass = buildFirstPass({
+        filename: file.name,
+        pages: result.pages,
+        pageLayouts: result.pageLayouts,
+        images: result.images,
+        imageIdsByOrder: imageIds.map(String),
+        classification: result.classification,
+      })
+      // Bind imageIds onto the StructuredDoc so finalize can render them.
+      firstPass.doc.source.sha256 = sourceSha
+      attachImagesToStructuredDoc(firstPass.doc, result.images, imageIds.map(String))
+
       await recordExtraction({
         jobId,
         classification: result.classification,
@@ -224,6 +239,7 @@ function NewImport() {
         extractedPages: result.pages,
         extractedImageIds: imageIds,
         extractStats: result.stats,
+        structuredDoc: firstPass.doc,
       })
 
       const skippedNote =
@@ -554,7 +570,9 @@ function UploadingHint() {
 
 function ExtractedStage({ job }: { job: Doc<"importJobs"> }) {
   const runMapping = useAction(api.importer.map.runMapping)
+  const resolveLinks = useMutation(api.importer.jobs.resolveLinks)
   const [busy, setBusy] = useState(false)
+  const hasStructuredDoc = job.structuredDoc != null
 
   async function handleMap() {
     setBusy(true)
@@ -570,6 +588,18 @@ function ExtractedStage({ job }: { job: Doc<"importJobs"> }) {
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Mapping failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleSkipAi() {
+    setBusy(true)
+    try {
+      await resolveLinks({ jobId: job._id })
+      toast.success("Cross-link candidates ready.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Resolve links failed")
     } finally {
       setBusy(false)
     }
@@ -664,27 +694,52 @@ function ExtractedStage({ job }: { job: Doc<"importJobs"> }) {
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-between rounded-md border bg-card p-3">
+      <div className="flex flex-col gap-2 rounded-md border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-xs text-muted-foreground">
-          Next: AI maps the extracted text into{" "}
-          {job.targetTemplate === "workInstructionLog"
-            ? "a LOG spec (primitives)"
-            : "a structured TipTap document"}{" "}
-          using the {job.defaultMode} default.
-        </div>
-        <Button size="sm" onClick={handleMap} disabled={busy}>
-          {busy ? (
+          {hasStructuredDoc ? (
             <>
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              Running mapping…
+              <span className="font-semibold text-foreground">
+                Deterministic structure already detected.
+              </span>{" "}
+              Continue to cross-links — or refine the procedure section with
+              AI first.
             </>
           ) : (
             <>
-              <Wand2 className="mr-1.5 h-3.5 w-3.5" />
-              Run AI mapping
+              Next: AI maps the extracted text into{" "}
+              {job.targetTemplate === "workInstructionLog"
+                ? "a LOG spec (primitives)"
+                : "a structured TipTap document"}{" "}
+              using the {job.defaultMode} default.
             </>
           )}
-        </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant={hasStructuredDoc ? "outline" : "default"}
+            onClick={handleMap}
+            disabled={busy}
+          >
+            {busy ? (
+              <>
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                Running…
+              </>
+            ) : (
+              <>
+                <Wand2 className="mr-1.5 h-3.5 w-3.5" />
+                Run AI mapping
+              </>
+            )}
+          </Button>
+          {hasStructuredDoc && (
+            <Button size="sm" onClick={handleSkipAi} disabled={busy}>
+              <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
+              Continue to cross-links
+            </Button>
+          )}
+        </div>
       </div>
     </>
   )
@@ -718,11 +773,22 @@ function ImagesGrid({ imageIds }: { imageIds: Id<"images">[] }) {
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
       {imageIds.map((id) => {
         const url = urls?.[id]
+        const hasUrl = typeof url === "string" && url.length > 0
         return (
           <Link key={id} href={`/images?selected=${id}`}>
             <div className="aspect-square overflow-hidden rounded-md border bg-muted/30 transition-colors hover:border-primary">
-              {url ? (
-                <img src={url} alt="" className="h-full w-full object-cover" />
+              {hasUrl ? (
+                <img
+                  src={url}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    // If the signed URL 404'd or was rotated, hide the
+                    // <img> tile so we don't show a browser-default broken
+                    // glyph next to all the working images.
+                    e.currentTarget.style.visibility = "hidden"
+                  }}
+                />
               ) : (
                 <div className="flex h-full items-center justify-center">
                   <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
@@ -1115,8 +1181,13 @@ function ReviewStage({ job }: { job: Doc<"importJobs"> }) {
   const updateMetadata = useMutation(api.importer.jobs.updateMetadata)
   const [, navigate] = useLocation()
   const [busy, setBusy] = useState(false)
-  const [title, setTitle] = useState(job.suggestedTitle ?? "")
-  const [namingCode, setNamingCode] = useState(job.suggestedNamingCode ?? "")
+  const sdMeta = (job.structuredDoc as { metadata?: { title?: string; namingCode?: string } } | null)?.metadata
+  const [title, setTitle] = useState(
+    job.suggestedTitle ?? sdMeta?.title ?? "",
+  )
+  const [namingCode, setNamingCode] = useState(
+    job.suggestedNamingCode ?? padNamingCode(sdMeta?.namingCode) ?? "",
+  )
 
   const isLogSpec = job.targetTemplate === "workInstructionLog"
   const resolutions = job.linkResolutions ?? []
@@ -1147,40 +1218,58 @@ function ReviewStage({ job }: { job: Doc<"importJobs"> }) {
       return
     }
 
-    if (!title.trim() || !namingCode.trim()) {
+    const trimmedTitle = title.trim()
+    const trimmedCode = namingCode.trim()
+    if (!trimmedTitle || !trimmedCode) {
       toast.error("Title and naming code are required.")
       return
     }
-    if (!/^[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-\d{4}$/.test(namingCode.trim())) {
+    if (!/^[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+-\d{4}$/.test(trimmedCode)) {
       toast.error("Naming code must be like HOL-OPS-SOP-0001.")
       return
     }
 
-    const rawBlocks = extractBodyContent(job.mappedBody)
-    const sanitised = sanitizeNodes(rawBlocks)
-    const usedFallback = sanitised.nodes.length === 0
-    const finalBlocks = usedFallback
-      ? buildFallbackBody(job.extractedPages ?? [], job.sourceFilename)
-      : sanitised.nodes
-    const body = {
-      type: "doc",
-      content: finalBlocks,
+    // New pipeline: render the StructuredDoc directly to TipTap. Falls back
+    // to the legacy mappedBody → sanitise → fallback path when no
+    // structuredDoc has been recorded (older jobs).
+    let body: { type: "doc"; content: unknown[] }
+    let usedLegacy = false
+    let usedFallback = false
+    const validation = validateStructuredDoc(job.structuredDoc)
+    if (validation.ok) {
+      const sd: StructuredDoc = {
+        ...validation.doc,
+        metadata: {
+          ...validation.doc.metadata,
+          title: trimmedTitle,
+          namingCode: trimmedCode,
+          type: guessDocType(job.targetTemplate),
+        },
+      }
+      body = renderToTiptap(sd)
+    } else {
+      usedLegacy = true
+      const rawBlocks = extractBodyContent(job.mappedBody)
+      const sanitised = sanitizeNodes(rawBlocks)
+      usedFallback = sanitised.nodes.length === 0
+      const finalBlocks = usedFallback
+        ? buildFallbackBody(job.extractedPages ?? [], job.sourceFilename)
+        : sanitised.nodes
+      body = { type: "doc", content: finalBlocks }
     }
+
     const chunks = bodyToChunks(body)
 
-    if (usedFallback) {
+    if (usedLegacy && usedFallback) {
       toast.warning(
-        `AI mapping returned no usable blocks — used a per-page verbatim fallback (${
+        `Legacy mapping path: AI returned no usable blocks. Used a per-page verbatim fallback (${
           job.extractedPages?.length ?? 0
-        } pages). You can re-run AI mapping or restructure manually in the editor.`,
+        } pages).`,
       )
-    } else if (sanitised.droppedCount > 0 || sanitised.normalisedCount > 0) {
-      const parts: string[] = []
-      if (sanitised.normalisedCount > 0)
-        parts.push(`${sanitised.normalisedCount} normalised`)
-      if (sanitised.droppedCount > 0)
-        parts.push(`${sanitised.droppedCount} dropped`)
-      toast.info(`Sanitised AI body: ${parts.join(", ")}.`)
+    } else if (validation.ok) {
+      toast.info(
+        `Built doc from StructuredDoc — ${validation.doc.sections.length} sections, ${validation.doc.linkedAssets.length} assets, ${validation.doc.history.length} revisions.`,
+      )
     }
 
     setBusy(true)
@@ -1224,14 +1313,23 @@ function ReviewStage({ job }: { job: Doc<"importJobs"> }) {
               No cross-links detected.
             </div>
           ) : (
-            resolutions.map((r, i) => (
-              <ResolutionRow
-                key={i}
-                resolution={r}
-                onAccept={() => handleAccept(i, true)}
-                onReject={() => handleAccept(i, false)}
-              />
-            ))
+            <>
+              {resolutions.every((r) => !r.targetId) && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                  None of the detected mentions matched an existing asset or document
+                  in your library. They will be left as plain text in the document. Add
+                  the relevant assets/documents first if you want them auto-linked.
+                </div>
+              )}
+              {resolutions.map((r, i) => (
+                <ResolutionRow
+                  key={i}
+                  resolution={r}
+                  onAccept={() => handleAccept(i, true)}
+                  onReject={() => handleAccept(i, false)}
+                />
+              ))}
+            </>
           )}
         </CardContent>
       </Card>
@@ -1310,8 +1408,10 @@ function ResolutionRow({
         ? Activity
         : ListChecks
   const conf = Math.round(resolution.confidence * 100)
-  const tone =
-    conf >= 90
+  const noMatch = !resolution.targetId
+  const tone = noMatch
+    ? "bg-muted text-muted-foreground"
+    : conf >= 90
       ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
       : conf >= 70
         ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
@@ -1326,10 +1426,18 @@ function ResolutionRow({
       <Icon className="h-3.5 w-3.5 text-primary" />
       <span className="font-mono">"{resolution.match}"</span>
       <ChevronRight className="h-3 w-3 text-muted-foreground" />
-      <span className="font-mono text-muted-foreground">
-        {resolution.targetLabel ?? "(no candidate)"}
-      </span>
-      <Badge className={cn("text-[10px]", tone)}>{conf}%</Badge>
+      {noMatch ? (
+        <span className="font-mono italic text-muted-foreground">
+          No match in library
+        </span>
+      ) : (
+        <span className="font-mono text-muted-foreground">
+          {resolution.targetLabel}
+        </span>
+      )}
+      {!noMatch && (
+        <Badge className={cn("text-[10px]", tone)}>{conf}%</Badge>
+      )}
       <div className="ml-auto flex items-center gap-1">
         {resolution.accepted ? (
           <Button
@@ -1340,11 +1448,14 @@ function ResolutionRow({
           >
             <X className="mr-1 h-3 w-3" /> Drop
           </Button>
+        ) : noMatch ? (
+          <span className="h-7 px-2 inline-flex items-center text-[11px] text-muted-foreground italic">
+            Will skip
+          </span>
         ) : (
           <Button
             size="sm"
             className="h-7 text-xs"
-            disabled={!resolution.targetId}
             onClick={onAccept}
           >
             <Check className="mr-1 h-3 w-3" /> Accept
@@ -1462,12 +1573,45 @@ async function sha256Hex(buf: ArrayBuffer): Promise<string> {
     .join("")
 }
 
+// Pad a naming code's number segment to 4 digits so a source value like
+// "UP-OPS-SOP-010" surfaces as "UP-OPS-SOP-0010" — the format the validator
+// requires and the editor expects.
+function padNamingCode(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const m = /^([A-Z0-9]+)-([A-Z0-9]+)-([A-Z0-9]+)-(\d{1,4})$/.exec(raw.trim())
+  if (!m) return null
+  return `${m[1]}-${m[2]}-${m[3]}-${m[4].padStart(4, "0")}`
+}
+
 function guessDocType(
   target: Doc<"importJobs">["targetTemplate"],
 ): "sop" | "manual" | "work_instruction" | "lmra" {
   if (target === "manual") return "manual"
   if (target === "lmra") return "lmra"
   return "sop"
+}
+
+// Append an "Imported figures" section to the StructuredDoc with one image
+// block per extracted image, bound to its real Convex image id. The user
+// can drag these where they belong in the editor; the binding survives.
+function attachImagesToStructuredDoc(
+  doc: StructuredDoc,
+  images: Array<{ pageNumber: number; hintAlt: string }>,
+  imageIdsByOrder: string[],
+): void {
+  if (images.length === 0) return
+  const blocks = images.map((img, i) => ({
+    kind: "image" as const,
+    imageId: imageIdsByOrder[i] ?? null,
+    page: img.pageNumber,
+    alt: img.hintAlt,
+  }))
+  doc.sections.push({
+    id: "section-imported-figures",
+    heading: "Imported figures",
+    level: 2,
+    blocks,
+  })
 }
 
 // Rough chunk extractor for embeddings: each block becomes one chunk.

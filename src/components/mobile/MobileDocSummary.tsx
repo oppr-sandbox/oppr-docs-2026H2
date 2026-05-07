@@ -1,43 +1,22 @@
 // Operator-facing summary card shown above the document body on mobile.
 //
 // What an operator needs at a glance: (1) what PPE before they start,
-// (2) which assets this doc applies to so they can scan/jump. Anything
-// else (owner, version, dates) lives in the header subtitle and we keep
-// this card thin so the body shows up above the fold on a phone.
+// (2) which assets this doc applies to so they can scan/jump.
+//
+// PPE chips are tap targets — each opens a Popover with the item's label and
+// short description so an operator who doesn't recognise a pictogram can
+// still find out what's required without leaving the page.
 
+import { useState } from "react"
 import { useLocation } from "wouter"
+import { Factory, X } from "lucide-react"
 import {
-  Factory,
-  HardHat,
-  Glasses,
-  Footprints,
-  Shirt,
-  Shield,
-  Wind,
-  Ear,
-} from "lucide-react"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { PPE_META, type PpeItem } from "@/components/docs/PpeBlock"
 import type { Asset } from "@/types"
-
-type PpeItem =
-  | "hardhat"
-  | "glasses"
-  | "gloves"
-  | "boots"
-  | "hi-vis"
-  | "ear-pro"
-  | "mask"
-  | "dust-mask"
-
-const PPE_ICON: Record<PpeItem, typeof HardHat> = {
-  hardhat: HardHat,
-  glasses: Glasses,
-  gloves: Shield,
-  boots: Footprints,
-  "hi-vis": Shirt,
-  "ear-pro": Ear,
-  mask: Wind,
-  "dust-mask": Wind,
-}
 
 interface MobileDocSummaryProps {
   assets: Asset[]
@@ -49,31 +28,68 @@ export function MobileDocSummary({
   ppeItems,
 }: MobileDocSummaryProps) {
   const [, navigate] = useLocation()
+  const [open, setOpen] = useState<PpeItem | null>(null)
   if (ppeItems.length === 0 && assets.length === 0) return null
 
   return (
-    <div className="mb-3 flex flex-col gap-2 rounded-2xl border bg-card p-3">
+    <div className="mb-2.5 flex flex-col gap-2 rounded-lg border bg-card p-2.5">
       {ppeItems.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
             PPE
           </span>
           {ppeItems.map((it) => {
-            const Icon = PPE_ICON[it]
+            const meta = PPE_META[it]
+            if (!meta) return null
+            const Icon = meta.icon
             return (
-              <span
+              <Popover
                 key={it}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-orange-300 bg-orange-50 text-orange-900 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-100"
+                open={open === it}
+                onOpenChange={(o) => setOpen(o ? it : null)}
               >
-                <Icon className="h-3.5 w-3.5" />
-              </span>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`${meta.label} info`}
+                    className="inline-flex h-7 items-center gap-1 rounded-full border border-orange-300 bg-orange-50 px-1.5 text-[10px] font-medium text-orange-900 transition-colors hover:bg-orange-100 active:scale-95 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-100"
+                  >
+                    <Icon className="h-3 w-3" />
+                    {meta.label}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  sideOffset={6}
+                  className="w-[240px] p-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-[12px] font-semibold">
+                      <Icon className="h-3.5 w-3.5 text-orange-600" />
+                      {meta.label}
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+                      aria-label="Close"
+                      onClick={() => setOpen(null)}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                    {meta.description}
+                  </p>
+                </PopoverContent>
+              </Popover>
             )
           })}
         </div>
       )}
       {assets.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
             Assets
           </span>
           {assets.map((a) => (
@@ -81,7 +97,7 @@ export function MobileDocSummary({
               key={a.id}
               type="button"
               onClick={() => navigate(`/m/assets/${a.id}`)}
-              className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 font-mono text-[11px] hover:border-primary/50"
+              className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 font-mono text-[10px] hover:border-primary/50"
             >
               <Factory className="h-3 w-3" />
               {a.code}

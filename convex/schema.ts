@@ -214,6 +214,7 @@ export default defineSchema({
     mappedBody: v.union(v.any(), v.null()),
     mappedLogSpec: v.union(v.any(), v.null()),
     mappingNotes: v.union(v.string(), v.null()),
+    structuredDoc: v.optional(v.union(v.any(), v.null())),
     linkResolutions: v.union(
       v.array(
         v.object({

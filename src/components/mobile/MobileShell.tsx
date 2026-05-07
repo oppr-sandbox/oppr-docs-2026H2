@@ -169,13 +169,13 @@ function BottomLink({
     <Link
       href={to}
       className={cn(
-        "flex flex-col items-center gap-0.5 px-1 py-2.5 text-[10px] transition-colors",
+        "flex flex-col items-center gap-0.5 px-1 py-2 text-[9px] transition-colors",
         active
           ? "text-primary"
           : "text-muted-foreground hover:text-foreground",
       )}
     >
-      <Icon className="h-5 w-5" />
+      <Icon className="h-4 w-4" />
       {label}
     </Link>
   )
