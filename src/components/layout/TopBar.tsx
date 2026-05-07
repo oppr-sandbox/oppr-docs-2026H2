@@ -1,9 +1,5 @@
-import type { ReactNode } from "react"
-import { Link, useLocation } from "wouter"
-import { ChevronRight, Home, PlusCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { AskIdaSheet } from "@/components/ai/AskIdaSheet"
-import type { AskPanelScope } from "@/components/ai/AskPanel"
+import { Link } from "wouter"
+import { ChevronRight, Home } from "lucide-react"
 import { UserMenu } from "./UserMenu"
 import { cn } from "@/lib/utils"
 
@@ -14,40 +10,13 @@ export interface BreadcrumbItem {
 
 interface TopBarProps {
   breadcrumb: BreadcrumbItem[]
-  // Page-specific actions render between breadcrumb and global ones.
-  children?: ReactNode
-  // Hides the global "+ New document" button (e.g. on the New document page).
-  hideNewDoc?: boolean
-  // Hides the Ask IDA button entirely (e.g. when the page hosts its own).
-  hideAskIda?: boolean
-  // Ask IDA scope — defaults to the whole library.
-  askScope?: AskPanelScope
 }
 
-export function TopBar({
-  breadcrumb,
-  children,
-  hideNewDoc,
-  hideAskIda,
-  askScope,
-}: TopBarProps) {
-  const [, navigate] = useLocation()
-  const scope: AskPanelScope = askScope ?? { kind: "library" }
-
+export function TopBar({ breadcrumb }: TopBarProps) {
   return (
     <div className="sticky top-0 z-30 flex h-12 items-center justify-between gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <Breadcrumb items={breadcrumb} />
-      <div className="flex items-center gap-1.5">
-        {children}
-        {!hideAskIda && <AskIdaSheet scope={scope} variant="ghost" />}
-        {!hideNewDoc && (
-          <Button size="sm" onClick={() => navigate("/docs/new")}>
-            <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-            New document
-          </Button>
-        )}
-        <UserMenu />
-      </div>
+      <UserMenu />
     </div>
   )
 }
@@ -71,15 +40,19 @@ function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
           {item.href ? (
             <Link
               href={item.href}
+              title={item.label}
               className={cn(
                 "rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                "truncate",
+                "max-w-[28ch] truncate",
               )}
             >
               {item.label}
             </Link>
           ) : (
-            <span className="truncate px-1.5 py-0.5 font-medium text-foreground">
+            <span
+              title={item.label}
+              className="max-w-[40ch] truncate px-1.5 py-0.5 font-medium text-foreground"
+            >
               {item.label}
             </span>
           )}

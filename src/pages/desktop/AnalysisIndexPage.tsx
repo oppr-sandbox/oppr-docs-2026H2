@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
 import {
   ANALYSES,
@@ -57,17 +58,12 @@ export function AnalysisIndexPage() {
   return (
     <div className="flex flex-col">
       <TopBar breadcrumb={[{ label: "Analysis" }]} />
+      <PageHeader
+        icon={Microscope}
+        title="Analysis"
+        subtitle="Investigations, gap analyses, and design proposals. Frozen artifacts you can argue from."
+      />
       <div className="space-y-4 p-6">
-        <div className="flex items-center gap-3">
-          <Microscope className="h-5 w-5 text-muted-foreground" />
-          <div>
-            <h1 className="text-base font-semibold">Analysis</h1>
-            <p className="text-xs text-muted-foreground">
-              Investigations, gap analyses, and design proposals. Frozen
-              artifacts you can argue from.
-            </p>
-          </div>
-        </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative max-w-sm flex-1">

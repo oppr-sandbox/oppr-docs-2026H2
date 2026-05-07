@@ -3,6 +3,7 @@ import { useLocation } from "wouter"
 import {
   Boxes,
   FileText,
+  LayoutDashboard,
   Library,
   PlusCircle,
   Smartphone,
@@ -22,6 +23,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { toLegacyDoc } from "@/lib/convex-adapters"
 import type { DocumentStatus } from "@/types"
 
@@ -81,15 +83,13 @@ export function DashboardPage() {
   return (
     <div className="flex flex-col">
       <TopBar breadcrumb={[{ label: "Dashboard" }]} />
+      <PageHeader
+        icon={LayoutDashboard}
+        title="Dashboard"
+        subtitle="Quick start and a snapshot of the library."
+      />
 
       <div className="space-y-6 p-6">
-        <div>
-          <h1 className="text-xl font-semibold">Dashboard</h1>
-          <p className="text-xs text-muted-foreground">
-            Quick start and a snapshot of the library.
-          </p>
-        </div>
-
         <div className="grid gap-4 lg:grid-cols-2">
           {/* Quick actions */}
           <Card>

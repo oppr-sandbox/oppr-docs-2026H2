@@ -151,7 +151,6 @@ export function AssetDetailPage() {
           { label: "Assets", href: "/assets" },
           { label: `${asset.code} · ${asset.name}` },
         ]}
-        askScope={{ kind: "asset", id: asset.id }}
       />
 
       <div className="space-y-6 p-6">

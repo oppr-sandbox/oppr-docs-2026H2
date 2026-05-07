@@ -233,8 +233,6 @@ export function DocumentEditPage() {
           },
           { label: "Edit" },
         ]}
-        askScope={{ kind: "doc", id: docWithAssets.id }}
-        hideNewDoc
       />
       <header className="sticky top-12 z-20 flex h-10 items-center justify-between border-b bg-background px-4 text-xs">
         <div className="flex min-w-0 items-center gap-2">

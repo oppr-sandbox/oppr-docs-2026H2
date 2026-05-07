@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { DocumentEditor } from "@/components/docs/DocumentEditor"
 import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 import {
   MetadataPanel,
   validateMetadata,
@@ -226,29 +227,29 @@ export function DocumentNewPage() {
           { label: "Library", href: "/library" },
           { label: kind === "pdf" ? "New PDF import" : "New document" },
         ]}
-        hideNewDoc
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setLocation(kind === "pdf" ? "/docs/new" : "/docs/new?kind=pdf")}
-        >
-          Switch to {kind === "pdf" ? "blank doc" : "PDF import"}
-        </Button>
-        <Button onClick={submit} disabled={submitting} size="sm">
-          {submitting ? "Saving…" : kind === "pdf" ? "Import PDF" : "Create document"}
-        </Button>
-      </TopBar>
-      <div className="border-b px-6 py-4">
-        <h1 className="text-base font-semibold">
-          New {kind === "pdf" ? "PDF import" : "document"}
-        </h1>
-        <p className="text-xs text-muted-foreground">
-          {kind === "pdf"
+      />
+      <PageHeader
+        title={`New ${kind === "pdf" ? "PDF import" : "document"}`}
+        subtitle={
+          kind === "pdf"
             ? "Drop a PDF, set metadata, and publish v1"
-            : "Compose the body, set metadata, and publish v1"}
-        </p>
-      </div>
+            : "Compose the body, set metadata, and publish v1"
+        }
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLocation(kind === "pdf" ? "/docs/new" : "/docs/new?kind=pdf")}
+            >
+              Switch to {kind === "pdf" ? "blank doc" : "PDF import"}
+            </Button>
+            <Button onClick={submit} disabled={submitting} size="sm">
+              {submitting ? "Saving…" : kind === "pdf" ? "Import PDF" : "Create document"}
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">

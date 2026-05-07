@@ -22,6 +22,7 @@ import { DocumentHero, extractPpeItems } from "@/components/docs/DocumentHero"
 import { DocumentToc } from "@/components/docs/DocumentToc"
 import { PublishToPdfDialog } from "@/components/docs/PublishToPdfDialog"
 import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 
 export function DocumentReadPage() {
   const [, params] = useRoute<{ id: string }>("/docs/:id")
@@ -116,44 +117,50 @@ export function DocumentReadPage() {
             { label: "Library", href: "/library" },
             { label: `${docWithAssets.naming_code} · ${docWithAssets.title}` },
           ]}
-          askScope={{ kind: "doc", id: docWithAssets.id }}
-        >
-          <PublishToPdfDialog
-            documentId={docWithAssets.id}
-            trigger={
+        />
+        <PageHeader
+          title={`${docWithAssets.naming_code} · ${docWithAssets.title}`}
+          subtitle={`v${renderedVersionNumber} · ${docWithAssets.status}`}
+          actions={
+            <>
               <Button
                 size="sm"
-                className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
+                variant="outline"
+                onClick={() => window.print()}
               >
-                <FileDown className="h-3.5 w-3.5" />
-                Publish to PDF
+                <Printer className="mr-1 h-3.5 w-3.5" />
+                Print
               </Button>
-            }
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => window.print()}
-          >
-            <Printer className="mr-1 h-3.5 w-3.5" />
-            Print
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setHistoryOpen(true)}
-          >
-            <History className="mr-1 h-3.5 w-3.5" />
-            History
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => navigate(`/docs/${docWithAssets.id}/edit`)}
-          >
-            <Edit className="mr-1 h-3.5 w-3.5" />
-            Edit
-          </Button>
-        </TopBar>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setHistoryOpen(true)}
+              >
+                <History className="mr-1 h-3.5 w-3.5" />
+                History
+              </Button>
+              <PublishToPdfDialog
+                documentId={docWithAssets.id}
+                trigger={
+                  <Button
+                    size="sm"
+                    className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    Publish to PDF
+                  </Button>
+                }
+              />
+              <Button
+                size="sm"
+                onClick={() => navigate(`/docs/${docWithAssets.id}/edit`)}
+              >
+                <Edit className="mr-1 h-3.5 w-3.5" />
+                Edit
+              </Button>
+            </>
+          }
+        />
       </div>
 
       <div className="grid flex-1 gap-6 p-6 lg:grid-cols-[1fr_240px] print:block print:p-0">

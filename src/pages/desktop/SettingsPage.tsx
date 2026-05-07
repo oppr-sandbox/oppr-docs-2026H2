@@ -13,8 +13,9 @@ import { useAuthActions } from "@convex-dev/auth/react"
 import { api } from "../../../convex/_generated/api"
 import { toast } from "sonner"
 import { buildSeedPayload } from "@/admin/buildSeedPayload"
-import { Loader2 } from "lucide-react"
+import { Loader2, Settings as SettingsIcon } from "lucide-react"
 import { TopBar } from "@/components/layout/TopBar"
+import { PageHeader } from "@/components/layout/PageHeader"
 
 const EMBEDDING_MODEL = "gemini-embedding-2"
 const EMBEDDING_DIM = 768
@@ -92,13 +93,12 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col">
       <TopBar breadcrumb={[{ label: "Settings" }]} />
+      <PageHeader
+        icon={SettingsIcon}
+        title="Settings"
+        subtitle="Theme, demo data, and AI controls."
+      />
       <div className="space-y-4 p-6">
-        <div>
-          <h1 className="text-base font-semibold">Settings</h1>
-          <p className="text-xs text-muted-foreground">
-            Theme, demo data, and AI controls.
-          </p>
-        </div>
 
       <Card>
         <CardHeader className="pb-3">

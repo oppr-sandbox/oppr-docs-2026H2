@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
+import { FloatingAskIda } from "@/components/ai/FloatingAskIda"
 
 type NavItem = {
   label: string
@@ -163,6 +164,7 @@ export function DesktopShell({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+      <FloatingAskIda />
     </div>
   )
 }
