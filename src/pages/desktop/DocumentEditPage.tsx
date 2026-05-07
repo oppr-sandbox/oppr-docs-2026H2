@@ -326,7 +326,7 @@ export function DocumentEditPage() {
         )}
       >
         <div className="min-w-0">
-          <div className="mx-auto w-full max-w-[80ch]">
+          <div className="w-full">
             <DocumentEditor
               content={body}
               onChange={(json) => setBody(json)}

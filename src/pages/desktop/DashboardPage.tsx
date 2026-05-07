@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
+import { NewDocumentDialog } from "@/components/docs/NewDocumentDialog"
 import { toLegacyDoc } from "@/lib/convex-adapters"
 import type { DocumentStatus } from "@/types"
 
@@ -103,15 +104,18 @@ export function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-auto flex-col gap-1 py-3"
-                onClick={() => navigate("/docs/new")}
-              >
-                <PlusCircle className="h-4 w-4" />
-                <span className="text-xs">New document</span>
-              </Button>
+              <NewDocumentDialog
+                trigger={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-auto flex-col gap-1 py-3"
+                  >
+                    <PlusCircle className="h-4 w-4" />
+                    <span className="text-xs">New document</span>
+                  </Button>
+                }
+              />
               <Button
                 variant="outline"
                 size="sm"

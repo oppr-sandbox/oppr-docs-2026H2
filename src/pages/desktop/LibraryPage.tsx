@@ -22,6 +22,7 @@ import {
   type DocumentRowAction,
 } from "@/components/docs/DocumentLibraryTable"
 import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
+import { NewDocumentDialog } from "@/components/docs/NewDocumentDialog"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { toast } from "sonner"
@@ -159,10 +160,14 @@ export function LibraryPage() {
               <Upload className="mr-1.5 h-3.5 w-3.5" />
               Upload PDF
             </Button>
-            <Button size="sm" onClick={() => navigate("/docs/new")}>
-              <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-              New document
-            </Button>
+            <NewDocumentDialog
+              trigger={
+                <Button size="sm">
+                  <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+                  New document
+                </Button>
+              }
+            />
           </>
         }
       />
