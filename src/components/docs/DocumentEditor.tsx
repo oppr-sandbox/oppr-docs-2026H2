@@ -60,6 +60,7 @@ import { Button } from "@/components/ui/button"
 import { LaunchLogNode, LaunchLogPicker } from "./LaunchLogBlock"
 import { LinkedAssetNode, LinkedAssetPicker } from "./LinkedAssetBlock"
 import { InsertImageDialog } from "./InsertImageDialog"
+import { InsertLinkDialog } from "./InsertLinkDialog"
 import { CalloutNode, type CalloutKind } from "./CalloutBlock"
 import { PpeNode, PpePicker, PpeQuickPalette, type PpeItem } from "./PpeBlock"
 import { DiagramNode, DiagramPicker } from "./DiagramBlock"
@@ -275,6 +276,12 @@ export function DocumentEditor({
   const [ppePickerOpen, setPpePickerOpen] = useState(false)
   const [diagramPickerOpen, setDiagramPickerOpen] = useState(false)
   const [imageDialogOpen, setImageDialogOpen] = useState(false)
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [linkInitial, setLinkInitial] = useState<{
+    url: string | null
+    text: string
+    openInNewTab: boolean
+  }>({ url: null, text: "", openInNewTab: true })
 
   const editor = useEditor({
     extensions: [
@@ -559,19 +566,75 @@ export function DocumentEditor({
 
   function setLink() {
     if (!editor) return
-    const previous = editor.getAttributes("link").href as string | undefined
-    const url = window.prompt("Link URL", previous ?? "https://")
-    if (url === null) return
-    if (url === "") {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run()
-      return
+    const previous = editor.getAttributes("link") as {
+      href?: string
+      target?: string
     }
-    editor
-      .chain()
-      .focus()
-      .extendMarkRange("link")
-      .setLink({ href: url })
-      .run()
+    const { from, to, empty } = editor.state.selection
+    const selectedText = empty
+      ? ""
+      : editor.state.doc.textBetween(from, to, " ")
+    setLinkInitial({
+      url: previous.href ?? null,
+      text: selectedText,
+      openInNewTab: previous.target === "_blank",
+    })
+    setLinkDialogOpen(true)
+  }
+
+  function applyLink(args: { url: string; text: string; openInNewTab: boolean }) {
+    if (!editor) return
+    // Naming code → /n/<code> (resolver route TBD); URLs pass through.
+    const looksLikeNamingCode = /^[A-Z]{2,5}-[A-Z]{2,5}-[A-Z]{2,5}-\d{3,4}$/.test(args.url)
+    const href = looksLikeNamingCode ? `/n/${args.url}` : args.url
+    const target = args.openInNewTab ? "_blank" : null
+    const rel = args.openInNewTab ? "noopener noreferrer" : null
+    const { from, to, empty } = editor.state.selection
+    if (empty) {
+      // Insert new text + link at the cursor
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "text",
+          text: args.text,
+          marks: [
+            { type: "link", attrs: { href, target, rel } as Record<string, string | null> },
+          ],
+        })
+        .run()
+    } else {
+      // Apply link to the current selection. If text changed, replace it.
+      const selectedText = editor.state.doc.textBetween(from, to, " ")
+      if (args.text && args.text !== selectedText) {
+        editor
+          .chain()
+          .focus()
+          .insertContentAt(
+            { from, to },
+            {
+              type: "text",
+              text: args.text,
+              marks: [
+                { type: "link", attrs: { href, target, rel } as Record<string, string | null> },
+              ],
+            },
+          )
+          .run()
+      } else {
+        editor
+          .chain()
+          .focus()
+          .extendMarkRange("link")
+          .setLink({ href, target, rel } as { href: string })
+          .run()
+      }
+    }
+  }
+
+  function unsetLinkMark() {
+    if (!editor) return
+    editor.chain().focus().extendMarkRange("link").unsetLink().run()
   }
 
   function insertImage() {
@@ -883,17 +946,26 @@ export function DocumentEditor({
       <InsertImageDialog
         open={imageDialogOpen}
         onOpenChange={setImageDialogOpen}
-        onInsert={({ id, alt }) => {
+        onInsert={({ id, alt, url }) => {
           if (!editor) return
           editor
             .chain()
             .focus()
             .insertContent({
               type: "image",
-              attrs: { src: "", alt, "data-image-id": id },
+              attrs: { src: url ?? "", alt, "data-image-id": id },
             })
             .run()
         }}
+      />
+      <InsertLinkDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        initialUrl={linkInitial.url}
+        initialText={linkInitial.text}
+        initialOpenInNewTab={linkInitial.openInNewTab}
+        onInsert={applyLink}
+        onUnlink={unsetLinkMark}
       />
     </div>
   )

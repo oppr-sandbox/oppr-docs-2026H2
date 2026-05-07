@@ -29,7 +29,9 @@ function ImageNodeView({ node }: ReactNodeViewProps) {
     dataImageId ? { id: dataImageId as Id<"images"> } : "skip",
   )
 
-  const src = dataImageId ? (resolved ?? null) : directSrc
+  // Use the resolved URL when available (handles expired signed URLs on re-mount).
+  // Fall back to whatever is in src so first paint is correct on insert.
+  const src = dataImageId ? (resolved ?? directSrc) : directSrc
 
   return (
     <NodeViewWrapper className="my-2">

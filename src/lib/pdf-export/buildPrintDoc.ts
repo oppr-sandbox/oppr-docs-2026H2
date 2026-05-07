@@ -35,6 +35,8 @@ interface BuildArgs {
   owner: User | null
   options: PdfExportOptions
   ppeOnDoc: PpeItem[]
+  /** Resolved signed URLs for images referenced in the body. Keyed by Convex Id. */
+  imageUrlMap?: Record<string, string | null>
 }
 
 const TYPE_LABEL: Record<Doc["type"], string> = {
@@ -45,7 +47,7 @@ const TYPE_LABEL: Record<Doc["type"], string> = {
 }
 
 export function buildPrintDoc(args: BuildArgs): string {
-  const { doc, version, assets, owner, options, ppeOnDoc } = args
+  const { doc, version, assets, owner, options, ppeOnDoc, imageUrlMap } = args
   const effective = formatDate(version.published_at)
   const reviewBy = addOneYear(version.published_at)
   const watermarkText = watermarkLabel(options.watermark, doc.status)
@@ -61,18 +63,35 @@ export function buildPrintDoc(args: BuildArgs): string {
 
   const pages: string[] = []
 
+  // Revision history goes on the title page (in the empty band below the
+  // metadata grid) when both the title page and revision block are enabled.
+  // If there's no title page, render it as the first body section instead.
+  const titleHasRevision = options.titlePage && options.revisionBlock
   if (options.titlePage) {
-    pages.push(renderTitlePage({ doc, owner, effective, reviewBy, assets, ppeOnDoc, watermarkText }))
+    pages.push(
+      renderTitlePage({
+        doc,
+        owner,
+        effective,
+        reviewBy,
+        assets,
+        ppeOnDoc,
+        watermarkText,
+        version: titleHasRevision ? version : null,
+      }),
+    )
   }
 
   const bodySections: string[] = []
-  if (options.revisionBlock) {
+  if (options.revisionBlock && !titleHasRevision) {
     bodySections.push(renderRevisionBlock({ doc, version, effective }))
   }
   if (options.assetList && assets.length > 0) {
     bodySections.push(renderAssetList(assets))
   }
-  bodySections.push(`<div class="doc-body">${renderTipTapDoc(version.body_json)}</div>`)
+  bodySections.push(
+    `<div class="doc-body">${renderTipTapDoc(version.body_json, imageUrlMap)}</div>`,
+  )
   pages.push(`<section class="doc-page">${bodySections.join("")}</section>`)
 
   const watermarkLayer = watermarkText
@@ -111,8 +130,9 @@ function renderTitlePage(args: {
   assets: Asset[]
   ppeOnDoc: PpeItem[]
   watermarkText: string | null
+  version: DocVersion | null
 }): string {
-  const { doc, owner, effective, reviewBy, assets, ppeOnDoc } = args
+  const { doc, owner, effective, reviewBy, assets, ppeOnDoc, version } = args
   const ownerLabel = owner ? `${escapeHtml(owner.name)} (${escapeHtml(owner.role)})` : "—"
   const assetSummary =
     assets.length === 0
@@ -142,6 +162,7 @@ function renderTitlePage(args: {
   </div>
   ${ppe ? `<div class="title-ppe">${ppe}</div>` : ""}
   ${tags ? `<div class="title-tags">${tags}</div>` : ""}
+  ${version ? renderRevisionBlock({ doc, version, effective }) : ""}
   <div class="title-controlled">
     <div class="stamp">Controlled copy</div>
     <div>Print date ${escapeHtml(formatToday())}. Verify the latest revision in Oppr DOCS before use. Uncontrolled when printed and not stamped or registered.</div>
@@ -211,11 +232,24 @@ interface TipTapNode {
   attrs?: Record<string, unknown>
 }
 
-function renderTipTapDoc(json: unknown): string {
+// Image URL map is read by the image case via a module-scoped variable
+// because the renderNode recursion threads through too many cases to plumb
+// the map as an argument. Set at the start of renderTipTapDoc.
+let CURRENT_IMAGE_URL_MAP: Record<string, string | null> | undefined
+
+function renderTipTapDoc(
+  json: unknown,
+  imageUrlMap?: Record<string, string | null>,
+): string {
   if (!json || typeof json !== "object") return ""
   const node = json as TipTapNode
   if (!Array.isArray(node.content)) return ""
-  return node.content.map(renderNode).join("")
+  CURRENT_IMAGE_URL_MAP = imageUrlMap
+  try {
+    return node.content.map(renderNode).join("")
+  } finally {
+    CURRENT_IMAGE_URL_MAP = undefined
+  }
 }
 
 function renderNode(node: TipTapNode): string {
@@ -241,8 +275,16 @@ function renderNode(node: TipTapNode): string {
     case "hardBreak":
       return `<br />`
     case "image": {
-      const src = String(node.attrs?.src ?? "")
+      const dataImageId = node.attrs?.["data-image-id"] as string | undefined
+      const directSrc = String(node.attrs?.src ?? "")
       const alt = String(node.attrs?.alt ?? "")
+      const resolved = dataImageId
+        ? CURRENT_IMAGE_URL_MAP?.[dataImageId] ?? null
+        : null
+      const src = resolved ?? directSrc
+      if (!src) {
+        return `<span class="img-missing" data-image-id="${escapeAttr(dataImageId ?? "")}">[image not available]</span>`
+      }
       return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" />`
     }
     case "table":

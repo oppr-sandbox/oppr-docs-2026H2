@@ -98,6 +98,27 @@ export const urlFor = query({
   },
 })
 
+export const urlsFor = query({
+  args: { ids: v.array(v.id("images")) },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const result: Record<string, string | null> = {}
+    for (const id of args.ids) {
+      const img = await ctx.db.get(id)
+      if (!img) {
+        result[id] = null
+        continue
+      }
+      if (img.source === "url") {
+        result[id] = img.externalUrl
+        continue
+      }
+      result[id] = img.storageId ? await ctx.storage.getUrl(img.storageId) : null
+    }
+    return result
+  },
+})
+
 export const createFromUpload = mutation({
   args: {
     storageId: v.id("_storage"),
@@ -119,7 +140,10 @@ export const createFromUpload = mutation({
     if (existing) {
       // De-dup: drop the duplicate upload, keep the existing record.
       await ctx.storage.delete(args.storageId)
-      return { id: existing._id, deduped: true as const }
+      const url = existing.storageId
+        ? await ctx.storage.getUrl(existing.storageId)
+        : null
+      return { id: existing._id, deduped: true as const, url }
     }
 
     const id = await ctx.db.insert("images", {
@@ -136,7 +160,8 @@ export const createFromUpload = mutation({
       uploadedBy: userId,
       createdAt: Date.now(),
     })
-    return { id, deduped: false as const }
+    const url = await ctx.storage.getUrl(args.storageId)
+    return { id, deduped: false as const, url }
   },
 })
 
@@ -163,7 +188,7 @@ export const createFromUrl = mutation({
       uploadedBy: userId,
       createdAt: Date.now(),
     })
-    return { id }
+    return { id, url: args.externalUrl }
   },
 })
 

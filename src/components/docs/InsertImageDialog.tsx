@@ -31,7 +31,7 @@ const URL_PATTERN = /\.(png|jpe?g|gif|webp|svg)([?#].*)?$/i
 interface InsertImageDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onInsert: (args: { id: Id<"images">; alt: string }) => void
+  onInsert: (args: { id: Id<"images">; alt: string; url: string | null }) => void
 }
 
 export function InsertImageDialog({
@@ -85,7 +85,7 @@ export function InsertImageDialog({
 function UploadTab({
   onInsert,
 }: {
-  onInsert: (args: { id: Id<"images">; alt: string }) => void
+  onInsert: (args: { id: Id<"images">; alt: string; url: string | null }) => void
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [alt, setAlt] = useState("")
@@ -144,7 +144,7 @@ function UploadTab({
       } else {
         toast.success("Image uploaded.")
       }
-      onInsert({ id: result.id, alt: alt.trim() })
+      onInsert({ id: result.id, alt: alt.trim(), url: result.url })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Upload failed")
     } finally {
@@ -210,7 +210,7 @@ function UploadTab({
 function UrlTab({
   onInsert,
 }: {
-  onInsert: (args: { id: Id<"images">; alt: string }) => void
+  onInsert: (args: { id: Id<"images">; alt: string; url: string | null }) => void
 }) {
   const [url, setUrl] = useState("")
   const [alt, setAlt] = useState("")
@@ -235,7 +235,7 @@ function UrlTab({
         contentType: contentTypeFromFilename(filename),
         altText: alt.trim(),
       })
-      onInsert({ id: result.id, alt: alt.trim() })
+      onInsert({ id: result.id, alt: alt.trim(), url: result.url })
       toast.success("Image referenced from URL.")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed")
