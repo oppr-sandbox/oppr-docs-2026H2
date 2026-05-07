@@ -10,6 +10,7 @@ import { EditorPublishFlowAnalysis } from "./EditorPublishFlowAnalysis"
 import { FrontendToConvexMigrationAnalysis } from "./FrontendToConvexMigrationAnalysis"
 import { PageHeaderSpecAnalysis } from "./PageHeaderSpecAnalysis"
 import { ImageLibraryAnalysis } from "./ImageLibraryAnalysis"
+import { EditorOverhaulAnalysis } from "./EditorOverhaulAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -32,6 +33,16 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "editor-overhaul",
+    title: "Editor overhaul — image, toolbar, tables, flow, print",
+    area: "Editor",
+    status: "outstanding",
+    updatedAt: "2026-05-07",
+    summary:
+      "Twelve issues from one testing round (broken image preview, link prompt, table widths, toolbar More menu, PDF-import toggle, inconsistent state model, revision block on page 2). Coordinated refresh in 4 phases plus 10 construction-SOP extras.",
+    Component: EditorOverhaulAnalysis,
+  },
   {
     slug: "page-header-spec",
     title: "Page header spec — TopBar, PageHeader, floating Ask IDA",
