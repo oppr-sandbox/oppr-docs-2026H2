@@ -48,6 +48,7 @@ export function ImageLibraryAnalysis() {
       <DataModelSection />
       <ProposedUploadFlowSection />
       <ProposedRepositorySection />
+      <ProposedDetailModalSection />
       <EdgeCasesSection />
       <SelfGrillingSection />
       <ImplementationPlanSection />
@@ -392,7 +393,7 @@ function ProposedRepositorySection() {
         <CardContent>
           <ul className="space-y-1 text-xs">
             <Capability label="List, sort, filter (by source, by uploader, by orphan-status, by content-type)" />
-            <Capability label="Click a row → side panel with full preview + every doc that uses it (linked to /docs/:id)" />
+            <Capability label="Click a row → detail modal (see next section) with full preview, every doc that uses it, editable attributes, and Download / Copy URL / Replace / Delete." />
             <Capability label="Bulk upload (drag-multiple to the page)" />
             <Capability label="Delete only when usage count = 0; otherwise show 'used in N docs' and require unlinking first" />
             <Capability label="Re-name alt text inline (writes back to the images row, not to the doc bodies — alt is image-level)" />
@@ -521,6 +522,191 @@ function ImageRow({
   )
 }
 
+function ProposedDetailModalSection() {
+  return (
+    <Section
+      title="Proposed image detail modal"
+      description="Click any row in /images → modal opens with the full image, every doc that uses it, editable attributes, and the obvious actions (Download, Copy URL, Replace, Delete)."
+    >
+      <Card>
+        <CardContent className="pt-6">
+          <DetailModalMock />
+        </CardContent>
+      </Card>
+      <Card className="mt-3">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">What the modal does</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-1 text-xs">
+            <Capability label="Full-size preview, top-aligned. Constrained to the modal width with object-contain so portrait + landscape both fit." />
+            <Capability label="Edit alt text and filename inline. Saves on blur. Alt-text edits propagate to all docs that reference the image (alt is image-level, not per-usage)." />
+            <Capability label="Used-in list — every document that references this image, with naming code + title + version. Click → opens the doc in a new tab so you don't lose the modal." />
+            <Capability label="Download — fetches the image bytes and saves with the original filename. Works for both upload and url sources (with a CORS warning when the URL host blocks it)." />
+            <Capability label="Copy URL — short-lived signed URL for upload-source rows; the original URL for url-source rows. Toast confirms." />
+            <Capability label="Replace — opens the upload picker. Same imageId, new bytes. All docs that reference it instantly show the new image. Old bytes orphaned (kept until cleanup cron)." />
+            <Capability label="Delete — disabled when used-in count > 0; tooltip explains why and links to the first usage. When count = 0, confirms then removes the row + the storage blob." />
+            <Capability label="Convert URL → upload — for url-source rows, a button to fetch the bytes once and promote to upload-source so it stops depending on the external host." />
+            <Capability label="Metadata block — content-type, byte size, dimensions, sha256, uploader email, created date." />
+          </ul>
+        </CardContent>
+      </Card>
+    </Section>
+  )
+}
+
+function DetailModalMock() {
+  return (
+    <div className="rounded-lg border bg-card p-0 shadow-lg">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">
+            mixer-feedstock-top.png
+          </div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            Image · 412 KB · 1280×720 · uploaded by floris@oppr.ai · 2 days ago
+          </div>
+        </div>
+        <Button size="icon" variant="ghost" className="h-7 w-7">
+          <XCircle className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="bg-muted/30 p-4">
+        <div className="mx-auto flex aspect-video max-w-2xl items-center justify-center rounded-md border bg-background">
+          <ImageIcon className="h-10 w-10 text-muted-foreground" />
+        </div>
+      </div>
+
+      <div className="grid gap-4 border-t px-4 py-4 md:grid-cols-2">
+        <div className="space-y-3">
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Alt text
+            </div>
+            <input
+              defaultValue="Mixer feedstock photo, top view"
+              className="w-full rounded-md border bg-background px-2 py-1 text-sm"
+            />
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Saves on blur. Propagates to every doc that uses this image.
+            </p>
+          </div>
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Filename
+            </div>
+            <input
+              defaultValue="mixer-feedstock-top.png"
+              className="w-full rounded-md border bg-background px-2 py-1 text-sm font-mono"
+            />
+          </div>
+          <div className="space-y-1 rounded-md border bg-muted/20 p-2 font-mono text-[10px]">
+            <MetaRow label="content-type" value="image/png" />
+            <MetaRow label="bytes" value="421,632" />
+            <MetaRow label="dimensions" value="1280 × 720" />
+            <MetaRow label="sha256" value="a3f4b…891c" />
+            <MetaRow label="source" value="upload" />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Used in 3 documents
+          </div>
+          <ul className="divide-y rounded-md border bg-background">
+            <UsageRow
+              code="HOL-OPS-SOP-0001"
+              title="Mixer feedstock check"
+              version={3}
+              status="published"
+            />
+            <UsageRow
+              code="HOL-OPS-SOP-0004"
+              title="Daily mixer health round"
+              version={2}
+              status="published"
+            />
+            <UsageRow
+              code="HOL-OPS-WI-0011"
+              title="Mixer feedstock troubleshooting"
+              version={1}
+              status="draft"
+            />
+          </ul>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline">
+            Download
+          </Button>
+          <Button size="sm" variant="outline">
+            Copy URL
+          </Button>
+          <Button size="sm" variant="outline">
+            Replace
+          </Button>
+        </div>
+        <Button size="sm" variant="outline" disabled>
+          Delete (used in 3 docs)
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="truncate">{value}</span>
+    </div>
+  )
+}
+
+function UsageRow({
+  code,
+  title,
+  version,
+  status,
+}: {
+  code: string
+  title: string
+  version: number
+  status: "published" | "draft" | "in_review" | "archived"
+}) {
+  return (
+    <li className="flex items-center justify-between gap-2 px-2.5 py-2 hover:bg-muted/50">
+      <div className="min-w-0">
+        <div className="font-mono text-[11px] text-muted-foreground">
+          {code}
+        </div>
+        <div className="truncate text-sm">{title}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-[10px]",
+            status === "published" &&
+              "border-emerald-500/40 text-emerald-700 dark:text-emerald-300",
+            status === "draft" && "text-muted-foreground",
+            status === "in_review" &&
+              "border-amber-500/40 text-amber-700 dark:text-amber-300",
+          )}
+        >
+          {status}
+        </Badge>
+        <Badge variant="outline" className="text-[10px]">
+          v{version}
+        </Badge>
+      </div>
+    </li>
+  )
+}
+
 interface EdgeCase {
   scenario: string
   current: string
@@ -569,6 +755,18 @@ const EDGE_CASES: EdgeCase[] = [
     scenario: "Old doc in IndexedDB has an image with no data-image-id",
     current: "Render works (it's still <img src=URL>). Repo shows nothing because there's no record.",
     proposed: "Migration on doc save: any <img> without a data-image-id gets an images row created (source='url' if external src; source='upload' is impossible without re-uploading). The doc body is patched in-place with data-image-id on next save. Idempotent.",
+    severity: "med",
+  },
+  {
+    scenario: "Replace: new bytes happen to match an existing image (sha256 collision)",
+    current: "N/A",
+    proposed: "Replace mutation rejects with 'this content already exists as imageId X'. The author can either use that existing image (we replace this row's usages with the other one and delete this row), or choose a different file. Prevents two records pointing at the same content.",
+    severity: "low",
+  },
+  {
+    scenario: "Replace on a published doc with active operators reading it",
+    current: "N/A",
+    proposed: "Replace updates the bytes for the imageId. Every reader sees the new image on next load. Warn the author in the modal: 'X published docs use this image. Replacing will update them all immediately.' Confirm before commit.",
     severity: "med",
   },
   {
