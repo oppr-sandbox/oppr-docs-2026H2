@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react"
-import { Link, useLocation, useRoute } from "wouter"
+import { useLocation, useRoute } from "wouter"
 import {
   AlertTriangle,
   FileText,
   Home,
-  Map as MapIcon,
   MapPin,
   Star,
 } from "lucide-react"
@@ -184,7 +183,7 @@ export function MobileAssetPage() {
       />
 
       <div className="flex flex-col gap-3 p-3 pb-24">
-        {/* Hero — pin + floorplan link + description */}
+        {/* Hero — pin + description */}
         <div className="flex flex-col gap-2 rounded-2xl border bg-card p-4">
           <div className="flex flex-wrap items-center gap-2">
             {asset.pin_number != null && (
@@ -192,15 +191,6 @@ export function MobileAssetPage() {
                 <MapPin className="h-3 w-3" />
                 Pin {String(asset.pin_number).padStart(2, "0")}
               </span>
-            )}
-            {asset.floorplan && (
-              <Link
-                href="/m/floorplan"
-                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted"
-              >
-                <MapIcon className="h-3 w-3" />
-                {asset.floorplan}
-              </Link>
             )}
           </div>
           {asset.description && (

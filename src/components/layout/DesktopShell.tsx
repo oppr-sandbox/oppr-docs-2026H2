@@ -8,6 +8,7 @@ import {
   FolderKanban,
   Microscope,
   LayoutDashboard,
+  LayoutTemplate,
   Image as ImageIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -33,6 +34,12 @@ const NAV: NavItem[] = [
     to: "/library",
     icon: FileText,
     match: (p) => p === "/library" || p.startsWith("/docs"),
+  },
+  {
+    label: "Templates",
+    to: "/templates",
+    icon: LayoutTemplate,
+    match: (p) => p.startsWith("/templates"),
   },
   {
     label: "Images",

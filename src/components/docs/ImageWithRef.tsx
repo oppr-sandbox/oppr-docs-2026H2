@@ -9,6 +9,7 @@
 // Older docs may have width as the legacy "33" / "66" / "100" string —
 // parseHTML normalises both.
 
+import { useRef } from "react"
 import { mergeAttributes } from "@tiptap/core"
 import Image from "@tiptap/extension-image"
 import {
@@ -17,14 +18,7 @@ import {
   type ReactNodeViewProps,
 } from "@tiptap/react"
 import { useQuery } from "convex/react"
-import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
-  ImageOff,
-  Minus,
-  Plus,
-} from "lucide-react"
+import { AlignCenter, AlignLeft, AlignRight, ImageOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { api } from "../../../convex/_generated/api"
@@ -80,98 +74,128 @@ function ImageNodeView({
   const src = dataImageId ? (resolved ?? directSrc) : directSrc
   const editable = editor?.isEditable ?? false
 
-  function bumpWidth(delta: number) {
-    updateAttributes({ width: clampWidth(width + delta) })
+  // Outer wrapper is always full width; its width is the 100% reference for the
+  // image's width percentage. We measure it during a drag so the handle tracks
+  // the cursor regardless of how small the image gets.
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const dragState = useRef<{ startX: number; startWidth: number; base: number } | null>(
+    null,
+  )
+
+  function onHandlePointerDown(e: React.PointerEvent) {
+    if (!editable) return
+    e.preventDefault()
+    e.stopPropagation()
+    const base = wrapperRef.current?.getBoundingClientRect().width ?? 0
+    if (base <= 0) return
+    dragState.current = { startX: e.clientX, startWidth: width, base }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  function onHandlePointerMove(e: React.PointerEvent) {
+    const st = dragState.current
+    if (!st) return
+    // Right-aligned images grow leftward, so invert the delta for that case.
+    const sign = align === "right" ? -1 : 1
+    const deltaPct = ((e.clientX - st.startX) / st.base) * 100 * sign
+    const next = Math.round((st.startWidth + deltaPct) / WIDTH_STEP) * WIDTH_STEP
+    updateAttributes({ width: clampWidth(next) })
+  }
+
+  function onHandlePointerUp(e: React.PointerEvent) {
+    if (dragState.current) {
+      ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+      dragState.current = null
+    }
   }
 
   return (
     <NodeViewWrapper className="my-2">
-      <div className={cn("flex w-full", alignToFlex(align))}>
-        <div
-          className="relative inline-block"
-          style={{ width: `${width}%` }}
-        >
+      <div ref={wrapperRef} className={cn("relative flex w-full", alignToFlex(align))}>
+        {/* Align toolbar anchored to the OUTER wrapper — never moves with the
+            image as it resizes. */}
+        {editable && selected && src && (
+          <div className="absolute right-0 top-0 z-10 flex gap-0.5 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur">
+            <Button
+              type="button"
+              variant={align === "left" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => updateAttributes({ align: "left" })}
+              title="Align left"
+            >
+              <AlignLeft className="h-3 w-3" />
+            </Button>
+            <Button
+              type="button"
+              variant={align === "center" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => updateAttributes({ align: "center" })}
+              title="Align center"
+            >
+              <AlignCenter className="h-3 w-3" />
+            </Button>
+            <Button
+              type="button"
+              variant={align === "right" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => updateAttributes({ align: "right" })}
+              title="Align right"
+            >
+              <AlignRight className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+
+        <div className="relative inline-block" style={{ width: `${width}%` }}>
           {src ? (
-            <img src={src} alt={alt} className="block w-full rounded-md" />
+            <img
+              src={src}
+              alt={alt}
+              className={cn(
+                "block w-full rounded-md",
+                editable && selected && "ring-2 ring-primary/40",
+              )}
+            />
           ) : (
             <div className="flex items-center gap-2 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
               <ImageOff className="h-4 w-4" />
               {dataImageId ? "Resolving image…" : "Image src missing"}
             </div>
           )}
+
           {editable && selected && src && (
-            <div className="absolute right-1 top-1 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur">
-              <div className="flex items-center gap-0.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => bumpWidth(-WIDTH_STEP)}
-                  disabled={width <= WIDTH_MIN}
-                  title="Smaller"
-                >
-                  <Minus className="h-3 w-3" />
-                </Button>
-                <span className="w-9 text-center text-[10px] font-mono tabular-nums text-muted-foreground">
-                  {width}%
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => bumpWidth(WIDTH_STEP)}
-                  disabled={width >= WIDTH_MAX}
-                  title="Larger"
-                >
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-              <input
-                type="range"
-                min={WIDTH_MIN}
-                max={WIDTH_MAX}
-                step={WIDTH_STEP}
-                value={width}
-                onChange={(e) =>
-                  updateAttributes({ width: clampWidth(Number(e.target.value)) })
-                }
-                className="h-1 w-full cursor-pointer accent-primary"
+            <>
+              {/* Width readout pinned to the outer-stable top-left of the image. */}
+              <span className="absolute left-1 top-1 rounded bg-background/90 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground shadow-sm">
+                {width}%
+              </span>
+              {/* Corner drag handle — sits on the corner you drag, so it stays
+                  under the cursor for the whole gesture. */}
+              <div
+                role="slider"
+                aria-label="Resize image"
+                aria-valuenow={width}
+                aria-valuemin={WIDTH_MIN}
+                aria-valuemax={WIDTH_MAX}
+                tabIndex={0}
+                onPointerDown={onHandlePointerDown}
+                onPointerMove={onHandlePointerMove}
+                onPointerUp={onHandlePointerUp}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+                    e.preventDefault()
+                    updateAttributes({ width: clampWidth(width + WIDTH_STEP) })
+                  } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+                    e.preventDefault()
+                    updateAttributes({ width: clampWidth(width - WIDTH_STEP) })
+                  }
+                }}
+                className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-primary bg-background shadow-sm touch-none"
               />
-              <div className="flex gap-0.5 border-t pt-1">
-                <Button
-                  type="button"
-                  variant={align === "left" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => updateAttributes({ align: "left" })}
-                  title="Align left"
-                >
-                  <AlignLeft className="h-3 w-3" />
-                </Button>
-                <Button
-                  type="button"
-                  variant={align === "center" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => updateAttributes({ align: "center" })}
-                  title="Align center"
-                >
-                  <AlignCenter className="h-3 w-3" />
-                </Button>
-                <Button
-                  type="button"
-                  variant={align === "right" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => updateAttributes({ align: "right" })}
-                  title="Align right"
-                >
-                  <AlignRight className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
+            </>
           )}
         </div>
       </div>

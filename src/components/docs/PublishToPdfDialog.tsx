@@ -5,7 +5,9 @@
 // (the popup has its own toolbar with Print + Close buttons).
 
 import { useMemo, useState } from "react"
-import { FileDown, Eye, Sparkles } from "lucide-react"
+import { FileDown, Eye, Loader2, Sparkles } from "lucide-react"
+import * as pdfjs from "pdfjs-dist"
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import {
   Dialog,
   DialogContent,
@@ -25,6 +27,7 @@ import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
 import { walkBodyImages } from "../../../convex/lib/imageWalker"
+import { walkBodyRefs } from "@/lib/bodyRefs"
 import { extractPpeItems } from "@/components/docs/DocumentHero"
 import {
   buildPrintDoc,
@@ -34,23 +37,46 @@ import {
 import { openPrintWindow } from "@/lib/pdf-export/openPrintWindow"
 import { toast } from "sonner"
 
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+
+// Max PDF pages we rasterise into an export. Beyond this we cap to keep memory
+// and print time sane.
+const MAX_PDF_PAGES = 20
+
 interface PublishToPdfDialogProps {
   documentId: string
-  trigger: React.ReactNode
+  /** Optional trigger; omit when driving `open` from the parent. */
+  trigger?: React.ReactNode
+  /** Controlled open state (e.g. so the edit page can save first). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function PublishToPdfDialog({ documentId, trigger }: PublishToPdfDialogProps) {
-  const [open, setOpen] = useState(false)
+export function PublishToPdfDialog({
+  documentId,
+  trigger,
+  open: controlledOpen,
+  onOpenChange,
+}: PublishToPdfDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = onOpenChange ?? setInternalOpen
   const [options, setOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS)
+  const [preparing, setPreparing] = useState(false)
 
   const docResult = useQuery(
     api.documents.getWithAssets,
     open ? { id: documentId as Id<"documents"> } : "skip",
   )
   const versionResult = useQuery(
-    api.documents.getCurrentVersion,
+    api.documents.getServingVersion,
     open ? { documentId: documentId as Id<"documents"> } : "skip",
   )
+  const versionsList = useQuery(
+    api.documents.listVersions,
+    open ? { documentId: documentId as Id<"documents"> } : "skip",
+  )
+  const allDocs = useQuery(api.documents.list, open ? {} : "skip")
 
   const resolved = useMemo(() => {
     if (!docResult || !versionResult) return null
@@ -85,10 +111,72 @@ export function PublishToPdfDialog({ documentId, trigger }: PublishToPdfDialogPr
     open && imageIds.length > 0 ? { ids: imageIds } : "skip",
   )
 
-  function buildHtml(): string | null {
+  // referenceDoc id → title, resolved from the document list (chip labels may
+  // be code-only and are never trusted for the title column).
+  const refTitleById = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const d of allDocs ?? []) map[d._id] = d.title
+    return map
+  }, [allDocs])
+
+  // pdfAttachment storage ids present in the body.
+  const pdfStorageIds = useMemo<Id<"_storage">[]>(() => {
+    if (!resolved || resolved.version.body_kind !== "tiptap") return []
+    const ids = new Set<string>()
+    const visit = (n: unknown) => {
+      if (!n || typeof n !== "object") return
+      const node = n as { type?: string; attrs?: Record<string, unknown>; content?: unknown[] }
+      if (node.type === "pdfAttachment" && node.attrs?.storageId) {
+        ids.add(String(node.attrs.storageId))
+      }
+      if (Array.isArray(node.content)) node.content.forEach(visit)
+    }
+    visit(resolved.version.body_json)
+    return Array.from(ids) as Id<"_storage">[]
+  }, [resolved])
+
+  const pdfUrlMap = useQuery(
+    api.files.getUrls,
+    open && pdfStorageIds.length > 0 ? { ids: pdfStorageIds } : "skip",
+  )
+
+  // Rasterise every embedded PDF's pages into data URLs so they render in the
+  // export. Page-capped; failures fall back to the attachment note.
+  async function rasterisePdfs(): Promise<Record<string, string[]>> {
+    if (pdfStorageIds.length === 0 || !pdfUrlMap) return {}
+    const out: Record<string, string[]> = {}
+    for (const sid of pdfStorageIds) {
+      const url = pdfUrlMap[sid]
+      if (!url) continue
+      try {
+        const pdf = await pdfjs.getDocument({ url }).promise
+        const count = Math.min(pdf.numPages, MAX_PDF_PAGES)
+        const pages: string[] = []
+        for (let i = 1; i <= count; i++) {
+          const page = await pdf.getPage(i)
+          const viewport = page.getViewport({ scale: 1.5 })
+          const canvas = document.createElement("canvas")
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          const ctx = canvas.getContext("2d")
+          if (!ctx) continue
+          await page.render({ canvasContext: ctx, viewport, canvas }).promise
+          pages.push(canvas.toDataURL("image/jpeg", 0.72))
+        }
+        out[sid] = pages
+      } catch (err) {
+        console.error("PDF rasterise failed", err)
+      }
+    }
+    return out
+  }
+
+  function buildHtml(pdfPagesByStorageId: Record<string, string[]>): string | null {
     if (!resolved) return null
     if (resolved.version.body_kind === "pdf") {
-      toast.error("PDF-backed documents can't be re-exported in v1. Open the PDF and use the browser's Save-as.")
+      toast.error(
+        "Legacy PDF-backed documents can't be re-exported. Open the PDF and use the browser's Save-as.",
+      )
       return null
     }
     return buildPrintDoc({
@@ -99,43 +187,43 @@ export function PublishToPdfDialog({ documentId, trigger }: PublishToPdfDialogPr
       options,
       ppeOnDoc: resolved.ppeOnDoc,
       imageUrlMap: imageUrlMap ?? undefined,
+      versions: versionsList
+        ? versionsList.map((v) => ({ version: v.version, publishedAt: v.publishedAt }))
+        : undefined,
+      refTitleById,
+      pdfPagesByStorageId,
     })
   }
 
-  function handlePreview() {
-    const html = buildHtml()
-    if (!html) return
-    const win = openPrintWindow(html)
-    if (!win) {
-      toast.error("Couldn't open the preview window. Check your popup blocker.")
-      return
+  async function openExport(autoPrint: boolean) {
+    setPreparing(true)
+    try {
+      const pages = await rasterisePdfs()
+      const html = buildHtml(pages)
+      if (!html) return
+      const finalHtml = autoPrint
+        ? html.replace(
+            "</body>",
+            `<script>window.addEventListener('load', function () { setTimeout(function () { window.print() }, 350) })</script></body>`,
+          )
+        : html
+      const win = openPrintWindow(finalHtml)
+      if (!win) {
+        toast.error("Couldn't open the window. Check your popup blocker.")
+        return
+      }
+      setOpen(false)
+    } finally {
+      setPreparing(false)
     }
-    setOpen(false)
-  }
-
-  function handleDownload() {
-    // For v1 we route Download through the same preview window so the user
-    // gets the browser's Save-as-PDF dialog with all options visible. The
-    // popup auto-prompts print on load when ?print=1 is set.
-    const html = buildHtml()
-    if (!html) return
-    const withAutoPrint = html.replace(
-      "</body>",
-      `<script>window.addEventListener('load', function () { setTimeout(function () { window.print() }, 350) })</script></body>`,
-    )
-    const win = openPrintWindow(withAutoPrint)
-    if (!win) {
-      toast.error("Couldn't open the print window. Check your popup blocker.")
-      return
-    }
-    setOpen(false)
   }
 
   const estimatedPages = estimatePageCount(resolved?.version.body_json, options)
+  const busy = preparing || (pdfStorageIds.length > 0 && pdfUrlMap === undefined)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -143,56 +231,62 @@ export function PublishToPdfDialog({ documentId, trigger }: PublishToPdfDialogPr
             Publish to PDF
           </DialogTitle>
           <DialogDescription>
-            Build a paginated PDF for printing or sharing. Includes everything from the
-            current published version.
+            Builds a controlled PDF from the saved version. Recurring header,
+            footer, and the controlled-copy stamp are always included.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-2">
-          <ToggleRow
-            id="title-page"
-            label="Include title page"
-            sublabel="Cover page with type, code, owner, dates, PPE."
-            value={options.titlePage}
-            onChange={(v) => setOptions((o) => ({ ...o, titlePage: v }))}
-          />
-          <ToggleRow
-            id="rev-block"
-            label="Include revision block"
-            sublabel="Revision history table on the first content page."
-            value={options.revisionBlock}
-            onChange={(v) => setOptions((o) => ({ ...o, revisionBlock: v }))}
-          />
-          <ToggleRow
-            id="rec-header"
-            label="Recurring header"
-            sublabel="Doc ID, version, and title at the top of every body page."
-            value={options.recurringHeader}
-            onChange={(v) => setOptions((o) => ({ ...o, recurringHeader: v }))}
-          />
-          <ToggleRow
-            id="rec-footer"
-            label="Recurring footer"
-            sublabel='Effective date and "Page X of Y".'
-            value={options.recurringFooter}
-            onChange={(v) => setOptions((o) => ({ ...o, recurringFooter: v }))}
-          />
-          <ToggleRow
-            id="asset-list"
-            label="Include linked-asset list"
-            sublabel="Lists every asset attached to this document."
-            value={options.assetList}
-            onChange={(v) => setOptions((o) => ({ ...o, assetList: v }))}
-          />
+        <div className="space-y-4 py-2">
+          <OptionGroup title="Cover & structure">
+            <ToggleRow
+              id="title-page"
+              label="Title page"
+              sublabel="Cover with type, code, owner, dates, PPE."
+              value={options.titlePage}
+              onChange={(v) => setOptions((o) => ({ ...o, titlePage: v }))}
+            />
+            <ToggleRow
+              id="rev-block"
+              label="Revision history"
+              sublabel="Version table, generated from publish history."
+              value={options.revisionBlock}
+              onChange={(v) => setOptions((o) => ({ ...o, revisionBlock: v }))}
+            />
+          </OptionGroup>
 
-          <Separator />
+          <OptionGroup title="Appendices">
+            <ToggleRow
+              id="asset-list"
+              label="Linked-machine list"
+              sublabel="Every machine referenced in the body."
+              value={options.assetList}
+              onChange={(v) => setOptions((o) => ({ ...o, assetList: v }))}
+            />
+            <ToggleRow
+              id="references-block"
+              label="References table"
+              sublabel="Built from the reference-document chips in the body."
+              value={options.referencesBlock}
+              onChange={(v) => setOptions((o) => ({ ...o, referencesBlock: v }))}
+            />
+            {pdfStorageIds.length > 0 && (
+              <div className="flex items-start gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
+                <FileDown className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {pdfStorageIds.length} embedded PDF
+                  {pdfStorageIds.length === 1 ? "" : "s"} will be rendered into
+                  the export (up to {MAX_PDF_PAGES} pages each).
+                </span>
+              </div>
+            )}
+          </OptionGroup>
 
           <div>
-            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Watermark
             </Label>
             <RadioGroup
-              className="mt-2 grid grid-cols-2 gap-1.5"
+              className="mt-1.5 grid grid-cols-2 gap-1.5"
               value={options.watermark}
               onValueChange={(v) =>
                 setOptions((o) => ({ ...o, watermark: v as PdfExportOptions["watermark"] }))
@@ -205,33 +299,53 @@ export function PublishToPdfDialog({ documentId, trigger }: PublishToPdfDialogPr
             </RadioGroup>
           </div>
 
+          <Separator />
+
           <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-            Estimated <strong>{estimatedPages}</strong> page{estimatedPages === 1 ? "" : "s"}
-            {options.titlePage ? " · 1 title page" : ""}
-            {options.revisionBlock ? " · 1 revision block" : ""}
-            {" · "}body content
+            Estimated <strong>{estimatedPages}</strong> page
+            {estimatedPages === 1 ? "" : "s"}
+            {options.titlePage ? " · title page" : ""}
+            {pdfStorageIds.length > 0 ? " · + embedded PDF pages" : ""}
           </div>
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-row">
-          <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={preparing}>
             Cancel
           </Button>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={handlePreview}>
-            <Eye className="h-3.5 w-3.5" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => void openExport(false)}
+            disabled={busy}
+          >
+            {preparing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
             Preview
           </Button>
           <Button
             size="sm"
             className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
-            onClick={handleDownload}
+            onClick={() => void openExport(true)}
+            disabled={busy}
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            {preparing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             Download PDF
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function OptionGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </div>
+      <div className="rounded-md border bg-card p-1">{children}</div>
+    </div>
   )
 }
 

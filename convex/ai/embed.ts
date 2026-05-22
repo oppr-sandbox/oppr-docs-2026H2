@@ -4,6 +4,7 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  query,
 } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Id } from "../_generated/dataModel"
@@ -70,7 +71,41 @@ export const writeEmbedding = internalMutation({
     await ctx.db.patch(args.chunkId, {
       embedding: args.embedding,
       embeddingModel: EMBEDDING_MODEL_VERSION,
+      embeddedAt: Date.now(),
     })
+  },
+})
+
+// Coverage for the Settings AI panel: how many chunks are indexed, how many
+// are still outstanding (same predicate listMissingChunks uses), and when the
+// last embedding was written. requireUser so it's signed-in only.
+export const embedStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx)
+    const all = await ctx.db.query("chunks").take(5000)
+    let embedded = 0
+    let outstanding = 0
+    let lastEmbeddedAt: number | null = null
+    for (const c of all) {
+      const isCurrent =
+        c.embedding !== null && c.embeddingModel === EMBEDDING_MODEL_VERSION
+      if (isCurrent) {
+        embedded += 1
+        if (c.embeddedAt != null && (lastEmbeddedAt === null || c.embeddedAt > lastEmbeddedAt)) {
+          lastEmbeddedAt = c.embeddedAt
+        }
+      } else {
+        outstanding += 1
+      }
+    }
+    return {
+      total: all.length,
+      embedded,
+      outstanding,
+      lastEmbeddedAt,
+      model: EMBEDDING_MODEL_VERSION,
+    }
   },
 })
 

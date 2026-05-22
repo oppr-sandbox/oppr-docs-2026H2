@@ -16,6 +16,7 @@ export interface PdfExportOptions {
   recurringHeader: boolean
   recurringFooter: boolean
   assetList: boolean
+  referencesBlock: boolean
   watermark: "none" | "controlled" | "draft" | "review"
 }
 
@@ -25,7 +26,13 @@ export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   recurringHeader: true,
   recurringFooter: true,
   assetList: false,
+  referencesBlock: true,
   watermark: "controlled",
+}
+
+export interface RevisionEntry {
+  version: number
+  publishedAt: number
 }
 
 interface BuildArgs {
@@ -37,6 +44,12 @@ interface BuildArgs {
   ppeOnDoc: PpeItem[]
   /** Resolved signed URLs for images referenced in the body. Keyed by Convex Id. */
   imageUrlMap?: Record<string, string | null>
+  /** Full version history, newest first. Drives the revision table. */
+  versions?: RevisionEntry[]
+  /** Resolve referenceDoc ids → title for the references table. */
+  refTitleById?: Record<string, string>
+  /** Resolve pdfAttachment storageIds → rasterised page image data URLs. */
+  pdfPagesByStorageId?: Record<string, string[]>
 }
 
 const TYPE_LABEL: Record<Doc["type"], string> = {
@@ -47,15 +60,32 @@ const TYPE_LABEL: Record<Doc["type"], string> = {
 }
 
 export function buildPrintDoc(args: BuildArgs): string {
-  const { doc, version, assets, owner, options, ppeOnDoc, imageUrlMap } = args
+  const {
+    doc,
+    version,
+    assets,
+    owner,
+    options,
+    ppeOnDoc,
+    imageUrlMap,
+    versions,
+    refTitleById,
+    pdfPagesByStorageId,
+  } = args
+  CURRENT_PDF_PAGES = pdfPagesByStorageId
   const effective = formatDate(version.published_at)
   const reviewBy = addOneYear(version.published_at)
-  const watermarkText = watermarkLabel(options.watermark, doc.status)
+  // The PDF reflects the live (published) edition. When a newer edition is being
+  // drafted, current_version is ahead of the live one — export the live number.
+  const displayVersion = doc.live_version ?? doc.current_version
+  const displayStatus: Doc["status"] =
+    doc.live_version != null ? "published" : doc.status
+  const watermarkText = watermarkLabel(options.watermark, displayStatus)
 
   const styles = buildPrintStyles({
     docId: doc.naming_code,
     title: doc.title,
-    version: doc.current_version,
+    version: displayVersion,
     effective: options.recurringFooter ? effective : null,
     reviewBy,
     watermark: watermarkText,
@@ -66,8 +96,18 @@ export function buildPrintDoc(args: BuildArgs): string {
   // Revision history goes on the title page (in the empty band below the
   // metadata grid) when both the title page and revision block are enabled.
   // If there's no title page, render it as the first body section instead.
-  const titleHasRevision = options.titlePage && options.revisionBlock
-  if (options.titlePage) {
+  // When a title page is present, the revision history, linked-machine list,
+  // and references table all live ON the title page (controlled-document
+  // convention) rather than trailing the body.
+  const onTitle = options.titlePage
+  const titleHasRevision = onTitle && options.revisionBlock
+  const refs = options.referencesBlock
+    ? collectReferences(version.body_json)
+    : []
+  const titleAssets = onTitle && options.assetList ? assets : []
+  const titleRefs = onTitle ? refs : []
+
+  if (onTitle) {
     pages.push(
       renderTitlePage({
         doc,
@@ -77,21 +117,32 @@ export function buildPrintDoc(args: BuildArgs): string {
         assets,
         ppeOnDoc,
         watermarkText,
+        displayVersion,
+        displayStatus,
         version: titleHasRevision ? version : null,
+        versions,
+        assetList: titleAssets,
+        refs: titleRefs,
+        refTitleById,
       }),
     )
   }
 
   const bodySections: string[] = []
   if (options.revisionBlock && !titleHasRevision) {
-    bodySections.push(renderRevisionBlock({ doc, version, effective }))
+    bodySections.push(
+      renderRevisionBlock({ displayVersion, displayStatus, version, versions }),
+    )
   }
-  if (options.assetList && assets.length > 0) {
+  if (!onTitle && options.assetList && assets.length > 0) {
     bodySections.push(renderAssetList(assets))
   }
   bodySections.push(
     `<div class="doc-body">${renderTipTapDoc(version.body_json, imageUrlMap)}</div>`,
   )
+  if (!onTitle && refs.length > 0) {
+    bodySections.push(renderReferences(refs, refTitleById))
+  }
   pages.push(`<section class="doc-page">${bodySections.join("")}</section>`)
 
   const watermarkLayer = watermarkText
@@ -108,7 +159,7 @@ export function buildPrintDoc(args: BuildArgs): string {
 </head>
 <body>
 <div class="preview-toolbar no-print">
-  <h1>${escapeHtml(doc.naming_code)} · v${doc.current_version} — ${escapeHtml(doc.title)}</h1>
+  <h1>${escapeHtml(doc.naming_code)} · v${displayVersion} — ${escapeHtml(doc.title)}</h1>
   <button onclick="window.print()" class="primary">Print / Save as PDF</button>
   <button onclick="window.close()">Close</button>
 </div>
@@ -130,39 +181,55 @@ function renderTitlePage(args: {
   assets: Asset[]
   ppeOnDoc: PpeItem[]
   watermarkText: string | null
+  displayVersion: number
+  displayStatus: Doc["status"]
   version: DocVersion | null
+  versions?: RevisionEntry[]
+  assetList: Asset[]
+  refs: RefEntry[]
+  refTitleById?: Record<string, string>
 }): string {
-  const { doc, owner, effective, reviewBy, assets, ppeOnDoc, version } = args
+  const {
+    doc,
+    owner,
+    effective,
+    reviewBy,
+    ppeOnDoc,
+    displayVersion,
+    displayStatus,
+    version,
+    versions,
+    assetList,
+    refs,
+    refTitleById,
+  } = args
   const ownerLabel = owner ? `${escapeHtml(owner.name)} (${escapeHtml(owner.role)})` : "—"
-  const assetSummary =
-    assets.length === 0
-      ? "—"
-      : assets.map((a) => `<code>${escapeHtml(a.code)}</code>`).join(", ")
-  const tags = doc.tags
-    .map((t) => `<span>${escapeHtml(t)}</span>`)
-    .join("")
   const ppe = ppeOnDoc
     .map((p) => `<span>${escapeHtml(PPE_META[p]?.label ?? p)}</span>`)
     .join("")
+  // Everything below the metadata grid is compiled together so the front page
+  // carries the full controlled-document context: revision history, then the
+  // linked machines and references in the same table format.
   return `
 <section class="doc-page title-page">
   <div class="title-eyebrow">Oppr DOCS · Controlled document</div>
   <div class="title-kicker">${escapeHtml(TYPE_LABEL[doc.type])}</div>
   <div class="title-main">
     <h1>${escapeHtml(doc.title)}</h1>
-    <div class="title-code">${escapeHtml(doc.naming_code)} · v${doc.current_version} · ${escapeHtml(doc.status)}</div>
+    <div class="title-code">${escapeHtml(doc.naming_code)} · v${displayVersion} · ${escapeHtml(displayStatus)}</div>
   </div>
   <div class="title-meta-grid">
     <div><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
     <div><div class="k">Effective</div><div class="v">${escapeHtml(effective)}</div></div>
     <div><div class="k">Review by</div><div class="v">${escapeHtml(reviewBy)}</div></div>
-    <div><div class="k">Revision</div><div class="v">${doc.current_version}</div></div>
-    <div><div class="k">Linked assets</div><div class="v">${assetSummary}</div></div>
+    <div><div class="k">Revision</div><div class="v">${displayVersion}</div></div>
     <div><div class="k">Type</div><div class="v">${escapeHtml(TYPE_LABEL[doc.type])}</div></div>
+    <div><div class="k">Status</div><div class="v">${escapeHtml(displayStatus)}</div></div>
   </div>
   ${ppe ? `<div class="title-ppe">${ppe}</div>` : ""}
-  ${tags ? `<div class="title-tags">${tags}</div>` : ""}
-  ${version ? renderRevisionBlock({ doc, version, effective }) : ""}
+  ${version ? renderRevisionBlock({ displayVersion, displayStatus, version, versions }) : ""}
+  ${assetList.length > 0 ? renderAssetList(assetList) : ""}
+  ${refs.length > 0 ? renderReferences(refs, refTitleById) : ""}
   <div class="title-controlled">
     <div class="stamp">Controlled copy</div>
     <div>Print date ${escapeHtml(formatToday())}. Verify the latest revision in Oppr DOCS before use. Uncontrolled when printed and not stamped or registered.</div>
@@ -175,13 +242,34 @@ function renderTitlePage(args: {
 // ---------------------------------------------------------------------------
 
 function renderRevisionBlock(args: {
-  doc: Doc
+  displayVersion: number
+  displayStatus: Doc["status"]
   version: DocVersion
-  effective: string
+  versions?: RevisionEntry[]
 }): string {
-  const { doc, version, effective } = args
-  // For v1 we surface only the current version. A real revision history would
-  // come from the doc_versions table; that's documented as a v2 follow-up.
+  const { displayVersion, displayStatus, version, versions } = args
+  // Auto-generated from the publish history. Only published revisions up to the
+  // live one appear (an in-progress draft is excluded), newest first, and we
+  // show just the three most recent so the front page stays compact.
+  const all =
+    versions && versions.length > 0
+      ? versions.map((r) => ({ version: r.version, publishedAt: r.publishedAt }))
+      : [{ version: displayVersion, publishedAt: Date.parse(version.published_at) }]
+  const rows = all
+    .filter((r) => r.version <= displayVersion)
+    .sort((a, b) => b.version - a.version)
+    .slice(0, 3)
+  const body = rows
+    .map((r) => {
+      const isCurrent = r.version === displayVersion
+      return `<tr>
+        <td>v${r.version}</td>
+        <td>${escapeHtml(formatDate(new Date(r.publishedAt).toISOString()))}</td>
+        <td>${escapeHtml(isCurrent ? displayStatus : "superseded")}</td>
+        <td>${isCurrent ? "Current version. Review at least annually." : "Superseded revision."}</td>
+      </tr>`
+    })
+    .join("")
   return `
 <section class="revision-block">
   <h2>Revision history</h2>
@@ -189,16 +277,79 @@ function renderRevisionBlock(args: {
     <thead>
       <tr><th>Rev</th><th>Date</th><th>Status</th><th>Summary</th></tr>
     </thead>
+    <tbody>${body}</tbody>
+  </table>
+</section>`
+}
+
+// ---------------------------------------------------------------------------
+// References & related documents (auto-generated from referenceDoc chips)
+// ---------------------------------------------------------------------------
+
+interface RefEntry {
+  docId: string
+  code: string
+  label: string
+}
+
+function collectReferences(body: unknown): RefEntry[] {
+  const seen = new Set<string>()
+  const out: RefEntry[] = []
+  const visit = (n: unknown) => {
+    if (!n || typeof n !== "object") return
+    const node = n as {
+      type?: string
+      attrs?: Record<string, unknown>
+      content?: unknown[]
+    }
+    if (node.type === "referenceDoc" && node.attrs) {
+      const docId = String(node.attrs["docId"] ?? "")
+      const code = String(node.attrs["code"] ?? "")
+      const label = String(node.attrs["label"] ?? code)
+      const key = docId || code || label
+      if (key && !seen.has(key)) {
+        seen.add(key)
+        out.push({ docId, code, label })
+      }
+    }
+    if (Array.isArray(node.content)) node.content.forEach(visit)
+  }
+  visit(body)
+  return out
+}
+
+// Title is resolved from the document list at render time; the chip label is
+// decorative (may be code-only), so we never rely on it for the title column.
+function renderReferences(
+  refs: RefEntry[],
+  titleById?: Record<string, string>,
+): string {
+  return `
+<section class="reference-block">
+  <h2>References &amp; related documents</h2>
+  <table>
+    <thead>
+      <tr><th>Code</th><th>Title</th></tr>
+    </thead>
     <tbody>
-      <tr>
-        <td>v${doc.current_version}</td>
-        <td>${escapeHtml(effective)}</td>
-        <td>${escapeHtml(doc.status)}</td>
-        <td>Current published version. Review at least annually.</td>
-      </tr>
+      ${refs
+        .map((r) => {
+          const title = titleById?.[r.docId] ?? deriveTitle(r.label, r.code)
+          return `<tr><td><code>${escapeHtml(r.code || "—")}</code></td><td>${escapeHtml(title)}</td></tr>`
+        })
+        .join("")}
     </tbody>
   </table>
 </section>`
+}
+
+// Fall back to the chip label minus the code prefix when no resolved title.
+function deriveTitle(label: string, code: string): string {
+  if (label && label !== code) {
+    const stripped = label.replace(code, "").replace(/^\s*[—-]\s*/, "").trim()
+    if (stripped) return stripped
+  }
+  return "—"
 }
 
 // ---------------------------------------------------------------------------
@@ -208,15 +359,20 @@ function renderRevisionBlock(args: {
 function renderAssetList(assets: Asset[]): string {
   return `
 <section class="asset-list-block">
-  <h2>Linked assets</h2>
-  <ul>
-    ${assets
-      .map(
-        (a) =>
-          `<li><code>${escapeHtml(a.code)}</code> — ${escapeHtml(a.name)}${a.location ? ` <span style="color:#9ca3af">(${escapeHtml(a.location)})</span>` : ""}</li>`,
-      )
-      .join("")}
-  </ul>
+  <h2>Linked machines</h2>
+  <table>
+    <thead>
+      <tr><th>Code</th><th>Machine</th></tr>
+    </thead>
+    <tbody>
+      ${assets
+        .map(
+          (a) =>
+            `<tr><td><code>${escapeHtml(a.code)}</code></td><td>${escapeHtml(a.name)}${a.location ? ` <span style="color:#9ca3af">(${escapeHtml(a.location)})</span>` : ""}</td></tr>`,
+        )
+        .join("")}
+    </tbody>
+  </table>
 </section>`
 }
 
@@ -236,6 +392,8 @@ interface TipTapNode {
 // because the renderNode recursion threads through too many cases to plumb
 // the map as an argument. Set at the start of renderTipTapDoc.
 let CURRENT_IMAGE_URL_MAP: Record<string, string | null> | undefined
+// Rasterised PDF pages (data URLs) keyed by storageId, for pdfAttachment nodes.
+let CURRENT_PDF_PAGES: Record<string, string[]> | undefined
 
 function renderTipTapDoc(
   json: unknown,
@@ -322,6 +480,10 @@ function renderNode(node: TipTapNode): string {
       return renderLaunchLog(node)
     case "linkedAsset":
       return renderLinkedAsset(node)
+    case "referenceDoc":
+      return renderReferenceDoc(node)
+    case "pdfAttachment":
+      return renderPdfAttachment(node)
     default:
       // Unknown nodes — try to render their children if they're block-like
       if (node.content && Array.isArray(node.content)) {
@@ -338,6 +500,7 @@ function renderInline(content: TipTapNode[] | undefined): string {
       if (n.type === "text") return applyMarks(escapeHtml(n.text ?? ""), n.marks)
       if (n.type === "hardBreak") return "<br />"
       if (n.type === "linkedAsset") return renderLinkedAsset(n)
+      if (n.type === "referenceDoc") return renderReferenceDoc(n)
       // Shouldn't normally appear inside inline content, but be defensive
       return renderNode(n)
     })
@@ -420,6 +583,31 @@ function renderLaunchLog(node: TipTapNode): string {
 function renderLinkedAsset(node: TipTapNode): string {
   const label = String(node.attrs?.label ?? "")
   return `<span data-linked-asset>${escapeHtml(label)}</span>`
+}
+
+function renderReferenceDoc(node: TipTapNode): string {
+  const label = String(node.attrs?.label ?? node.attrs?.code ?? "")
+  return `<span data-reference-doc>${escapeHtml(label)}</span>`
+}
+
+function renderPdfAttachment(node: TipTapNode): string {
+  const storageId = String(node.attrs?.storageId ?? "")
+  const filename = String(node.attrs?.filename ?? "Attached PDF")
+  const pageCount = Number(node.attrs?.pageCount ?? 0)
+  const pages = storageId ? CURRENT_PDF_PAGES?.[storageId] : undefined
+  const head = `<div class="pdf-attachment-head">Attached PDF — ${escapeHtml(filename)}${
+    pageCount ? ` · ${pageCount} page${pageCount === 1 ? "" : "s"}` : ""
+  }</div>`
+  if (pages && pages.length > 0) {
+    const imgs = pages
+      .map(
+        (src, i) =>
+          `<figure class="pdf-page"><img src="${escapeAttr(src)}" alt="${escapeAttr(filename)} page ${i + 1}" /></figure>`,
+      )
+      .join("")
+    return `<section class="pdf-attachment">${head}${imgs}</section>`
+  }
+  return `<section class="pdf-attachment-note">${head}<p>Open the source document in Oppr DOCS to view the PDF.</p></section>`
 }
 
 // ---------------------------------------------------------------------------

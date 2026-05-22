@@ -10,10 +10,12 @@ import TableHeader from "@tiptap/extension-table-header"
 import { cn } from "@/lib/utils"
 import { LaunchLogNode } from "./LaunchLogBlock"
 import { LinkedAssetNode } from "./LinkedAssetBlock"
+import { ReferenceDocNode } from "./ReferenceDocBlock"
 import { CalloutNode } from "./CalloutBlock"
 import { PpeNode } from "./PpeBlock"
 import { DiagramNode } from "./DiagramBlock"
 import { StepListNode, StepItemNode } from "./StepListBlock"
+import { PdfAttachmentNode } from "./PdfAttachmentBlock"
 
 interface TiptapReadOnlyProps {
   content: unknown
@@ -51,11 +53,13 @@ export function TiptapReadOnly({ content, className }: TiptapReadOnlyProps) {
         TableCell,
         LaunchLogNode,
         LinkedAssetNode,
+        ReferenceDocNode,
         CalloutNode,
         PpeNode,
         DiagramNode,
         StepListNode,
         StepItemNode,
+        PdfAttachmentNode,
       ],
       enableContentCheck: false,
     },

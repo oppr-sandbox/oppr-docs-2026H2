@@ -43,7 +43,7 @@ function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
               title={item.label}
               className={cn(
                 "rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                "max-w-[28ch] truncate",
+                "max-w-[60ch] truncate",
               )}
             >
               {item.label}

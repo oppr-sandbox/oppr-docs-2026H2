@@ -3,6 +3,40 @@ import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
+import { allocateNamingCode } from "./naming"
+import { walkBodyAssetIds } from "./lib/assetWalker"
+
+// Recompute the documentAssets links for a document from the asset pills present
+// in its body. The body is the single source of truth — there is no manual asset
+// field any more. Diffs against existing links so we only insert/delete deltas.
+async function syncDocumentAssetsFromBody(
+  ctx: import("./_generated/server").MutationCtx,
+  documentId: Id<"documents">,
+  body: unknown,
+) {
+  const wantedRaw = walkBodyAssetIds(body)
+  const wanted = new Set<string>()
+  for (const raw of wantedRaw) {
+    const typed = ctx.db.normalizeId("assets", raw)
+    if (typed) wanted.add(typed)
+  }
+  const existingLinks = await ctx.db
+    .query("documentAssets")
+    .withIndex("by_documentId", (q) => q.eq("documentId", documentId))
+    .take(500)
+  const existing = new Set(existingLinks.map((l) => String(l.assetId)))
+  for (const link of existingLinks) {
+    if (!wanted.has(String(link.assetId))) await ctx.db.delete(link._id)
+  }
+  for (const id of wanted) {
+    if (!existing.has(id)) {
+      await ctx.db.insert("documentAssets", {
+        documentId,
+        assetId: id as Id<"assets">,
+      })
+    }
+  }
+}
 
 const docTypeValidator = v.union(
   v.literal("sop"),
@@ -11,8 +45,10 @@ const docTypeValidator = v.union(
   v.literal("lmra"),
 )
 const docStatusValidator = v.union(
+  v.literal("pre_draft"),
   v.literal("draft"),
   v.literal("in_review"),
+  v.literal("approved"),
   v.literal("published"),
   v.literal("archived"),
 )
@@ -148,7 +184,19 @@ export const getWithAssets = query({
       await Promise.all(links.map((l) => ctx.db.get(l.assetId)))
     ).filter((a): a is Doc<"assets"> => a !== null)
     assets.sort((a, b) => a.code.localeCompare(b.code))
-    return { doc, assets }
+
+    async function nameOf(uid: Id<"users"> | null | undefined) {
+      if (!uid) return null
+      const u = await ctx.db.get(uid)
+      if (!u) return null
+      return u.name ?? u.email ?? null
+    }
+    const roles = {
+      author: await nameOf(doc.authorId),
+      reviewer: await nameOf(doc.reviewerId),
+      approver: await nameOf(doc.approverId),
+    }
+    return { doc, assets, roles }
   },
 })
 
@@ -163,6 +211,27 @@ export const getCurrentVersion = query({
       .query("documentVersions")
       .withIndex("by_documentId_and_version", (q) =>
         q.eq("documentId", args.documentId).eq("version", doc.currentVersion),
+      )
+      .unique()
+  },
+})
+
+// The version readers should see: the live (published) edition while a newer
+// edition is being drafted, falling back to the working version for documents
+// that have never been published. Operators / QR / mobile use this, not
+// getCurrentVersion (which is the authoring edition).
+export const getServingVersion = query({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const doc = await ctx.db.get(args.documentId)
+    if (!doc) return null
+    const serving = doc.liveVersion ?? doc.currentVersion
+    if (serving < 1) return null
+    return await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.documentId).eq("version", serving),
       )
       .unique()
   },
@@ -212,13 +281,6 @@ const docTypeArg = v.union(
   v.literal("work_instruction"),
   v.literal("lmra"),
 )
-const docStatusArg = v.union(
-  v.literal("draft"),
-  v.literal("in_review"),
-  v.literal("published"),
-  v.literal("archived"),
-)
-
 async function ensureUniqueNamingCode(
   ctx: import("./_generated/server").MutationCtx,
   namingCode: string,
@@ -235,27 +297,41 @@ async function ensureUniqueNamingCode(
 
 export const create = mutation({
   args: {
-    namingCode: v.string(),
+    location: v.string(),
+    discipline: v.string(),
     title: v.string(),
     type: docTypeArg,
-    tags: v.array(v.string()),
-    assetIds: v.array(v.id("assets")),
+    reviewerId: v.optional(v.union(v.id("users"), v.null())),
+    approverId: v.optional(v.union(v.id("users"), v.null())),
     body: v.any(),
     chunks: chunkInputValidator,
+    // Optional storageId when the body embeds an imported PDF attachment.
+    pdfStorageId: v.optional(v.union(v.id("_storage"), v.null())),
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
-    await ensureUniqueNamingCode(ctx, args.namingCode)
+
+    const namingCode = await allocateNamingCode(
+      ctx,
+      args.location,
+      args.discipline,
+      args.type,
+    )
 
     const now = Date.now()
     const docId = await ctx.db.insert("documents", {
-      namingCode: args.namingCode,
+      namingCode,
+      location: args.location,
+      discipline: args.discipline,
       title: args.title.trim(),
       type: args.type,
       status: "draft",
       currentVersion: 1,
       ownerId: userId,
-      tags: args.tags,
+      authorId: userId,
+      reviewerId: args.reviewerId ?? null,
+      approverId: args.approverId ?? null,
+      tags: [],
       updatedAt: now,
     })
 
@@ -264,8 +340,9 @@ export const create = mutation({
       version: 1,
       bodyKind: "tiptap",
       bodyJson: args.body,
-      pdfStorageId: null,
+      pdfStorageId: args.pdfStorageId ?? null,
       publishedAt: now,
+      signoffs: [{ role: "author", userId, at: now }],
     })
 
     for (const [i, c] of args.chunks.entries()) {
@@ -280,12 +357,7 @@ export const create = mutation({
       })
     }
 
-    for (const aid of args.assetIds) {
-      await ctx.db.insert("documentAssets", {
-        documentId: docId,
-        assetId: aid,
-      })
-    }
+    await syncDocumentAssetsFromBody(ctx, docId, args.body)
 
     await ctx.runMutation(internal.images.recomputeUsagesForVersion, {
       documentId: docId,
@@ -301,52 +373,117 @@ export const create = mutation({
   },
 })
 
-export const savePublish = mutation({
+// Save the working content. Saving NEVER bumps the version or changes the
+// lifecycle status — the version number is the *published edition* count and
+// only advances through createNewVersion (forking a published document). So:
+//   - pre_draft  → promote to draft (allocates the naming code), overwrite v1.
+//   - published  → rejected. A published edition is read-only; editing it must
+//                  go through createNewVersion, which forks the next draft.
+//   - otherwise  → overwrite the current (working) version's content in place.
+// Status only advances through the gated transition mutations below. The naming
+// code is immutable after creation. Linked assets are derived from the body.
+export const saveContent = mutation({
   args: {
     id: v.id("documents"),
-    namingCode: v.string(),
     title: v.string(),
     type: docTypeArg,
-    status: docStatusArg,
-    tags: v.array(v.string()),
-    assetIds: v.array(v.id("assets")),
+    // Only used to promote a pre_draft: location + discipline allocate the code.
+    location: v.optional(v.string()),
+    discipline: v.optional(v.string()),
+    reviewerId: v.optional(v.union(v.id("users"), v.null())),
+    approverId: v.optional(v.union(v.id("users"), v.null())),
     body: v.any(),
     chunks: chunkInputValidator,
+    pdfStorageId: v.optional(v.union(v.id("_storage"), v.null())),
   },
   handler: async (ctx, args) => {
-    await requireUserId(ctx)
+    const userId = await requireUserId(ctx)
     const doc = await ctx.db.get(args.id)
     if (!doc) throw new Error("Document not found")
-    if (args.namingCode !== doc.namingCode) {
-      await ensureUniqueNamingCode(ctx, args.namingCode, args.id)
-    }
 
     const now = Date.now()
-    const nextVersion = doc.currentVersion + 1
 
-    await ctx.db.patch(args.id, {
-      namingCode: args.namingCode,
+    const patch: Partial<Doc<"documents">> = {
       title: args.title.trim(),
       type: args.type,
-      status: args.status,
-      tags: args.tags,
-      currentVersion: nextVersion,
       updatedAt: now,
-    })
+    }
+    if (args.reviewerId !== undefined) patch.reviewerId = args.reviewerId
+    if (args.approverId !== undefined) patch.approverId = args.approverId
+    if (!doc.authorId) patch.authorId = userId
 
-    await ctx.db.insert("documentVersions", {
-      documentId: args.id,
-      version: nextVersion,
-      bodyKind: "tiptap",
-      bodyJson: args.body,
-      pdfStorageId: null,
-      publishedAt: now,
-    })
+    // A published edition is locked. Editing it must fork a new draft edition
+    // via createNewVersion, so v1 stays live until v2 completes the cycle.
+    if (doc.status === "published") {
+      throw new Error(
+        "Published documents are read-only. Create a new version to edit.",
+      )
+    }
 
+    // Overwrite the current (working) version's content in place — never a bump.
+    const targetVersion = doc.currentVersion
+
+    if (doc.status === "pre_draft") {
+      // Promote a pre-draft to a real draft: this is when it first claims a
+      // naming code from the per-triplet counter. Before this, imports carry no
+      // code and never burn a number. Content overwrites the existing v1 row.
+      const location = (args.location ?? doc.location ?? "").trim()
+      const discipline = (args.discipline ?? doc.discipline ?? "").trim()
+      if (!location || !discipline) {
+        throw new Error(
+          "Set a location and discipline before saving — that allocates the document's naming code.",
+        )
+      }
+      patch.location = location
+      patch.discipline = discipline
+      patch.status = "draft"
+      patch.namingCode = await allocateNamingCode(
+        ctx,
+        location,
+        discipline,
+        args.type,
+      )
+    }
+
+    await ctx.db.patch(args.id, patch)
+
+    // Upsert the target version's content row.
+    const existing = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id).eq("version", targetVersion),
+      )
+      .unique()
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        bodyKind: "tiptap",
+        bodyJson: args.body,
+        pdfStorageId: args.pdfStorageId ?? existing.pdfStorageId ?? null,
+      })
+    } else {
+      await ctx.db.insert("documentVersions", {
+        documentId: args.id,
+        version: targetVersion,
+        bodyKind: "tiptap",
+        bodyJson: args.body,
+        pdfStorageId: args.pdfStorageId ?? null,
+        publishedAt: now,
+        signoffs: [{ role: "author", userId, at: now }],
+      })
+    }
+
+    // Reconcile chunks for the target version (delete then reinsert).
+    const oldChunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id).eq("version", targetVersion),
+      )
+      .collect()
+    for (const c of oldChunks) await ctx.db.delete(c._id)
     for (const [i, c] of args.chunks.entries()) {
       await ctx.db.insert("chunks", {
         documentId: args.id,
-        version: nextVersion,
+        version: targetVersion,
         seq: i + 1,
         text: c.text,
         pageOrSection: c.section,
@@ -355,30 +492,11 @@ export const savePublish = mutation({
       })
     }
 
-    const existingLinks = await ctx.db
-      .query("documentAssets")
-      .withIndex("by_documentId", (q) => q.eq("documentId", args.id))
-      .take(500)
-    const existingAssetIds = new Set(existingLinks.map((l) => l.assetId))
-    const wantedAssetIds = new Set(args.assetIds)
-
-    for (const link of existingLinks) {
-      if (!wantedAssetIds.has(link.assetId)) {
-        await ctx.db.delete(link._id)
-      }
-    }
-    for (const aid of args.assetIds) {
-      if (!existingAssetIds.has(aid)) {
-        await ctx.db.insert("documentAssets", {
-          documentId: args.id,
-          assetId: aid,
-        })
-      }
-    }
+    await syncDocumentAssetsFromBody(ctx, args.id, args.body)
 
     await ctx.runMutation(internal.images.recomputeUsagesForVersion, {
       documentId: args.id,
-      documentVersion: nextVersion,
+      documentVersion: targetVersion,
       body: args.body,
     })
 
@@ -386,7 +504,184 @@ export const savePublish = mutation({
       documentId: args.id,
     })
 
-    return { version: nextVersion }
+    return { version: targetVersion }
+  },
+})
+
+// Append a sign-off to the current version's trail.
+async function recordSignoff(
+  ctx: import("./_generated/server").MutationCtx,
+  doc: Doc<"documents">,
+  role: "author" | "reviewer" | "approver",
+  userId: Id<"users">,
+) {
+  const version = await ctx.db
+    .query("documentVersions")
+    .withIndex("by_documentId_and_version", (q) =>
+      q.eq("documentId", doc._id).eq("version", doc.currentVersion),
+    )
+    .unique()
+  if (!version) return
+  const signoffs = version.signoffs ?? []
+  await ctx.db.patch(version._id, {
+    signoffs: [...signoffs, { role, userId, at: Date.now() }],
+  })
+}
+
+// draft → in_review. Requires a reviewer to be assigned. The author sign-off
+// for this version is already recorded by saveContent, so we don't add another.
+export const submitForReview = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+    if (doc.status !== "draft")
+      throw new Error("Only a draft can be submitted for review.")
+    if (!doc.reviewerId)
+      throw new Error("Assign a reviewer before submitting for review.")
+    await ctx.db.patch(args.id, { status: "in_review", updatedAt: Date.now() })
+  },
+})
+
+// in_review → approved. Requires an approver to be assigned; records approval.
+export const approve = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+    if (doc.status !== "in_review")
+      throw new Error("Only a document in review can be approved.")
+    if (!doc.approverId)
+      throw new Error("Assign an approver before approving.")
+    await ctx.db.patch(args.id, { status: "approved", updatedAt: Date.now() })
+    await recordSignoff(ctx, doc, "reviewer", userId)
+  },
+})
+
+// approved → published. This edition becomes the live one served to operators,
+// QR, and RAG (liveVersion). If a previous edition was live, it is replaced here.
+export const publish = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+    if (doc.status !== "approved")
+      throw new Error("A document must be approved before publishing.")
+    await ctx.db.patch(args.id, {
+      status: "published",
+      liveVersion: doc.currentVersion,
+      updatedAt: Date.now(),
+    })
+    await recordSignoff(ctx, doc, "approver", userId)
+
+    // Drop chunks belonging to superseded editions — only the now-live version
+    // is served to RAG. Version bodies stay in documentVersions for history.
+    const staleChunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id),
+      )
+      .collect()
+    for (const c of staleChunks) {
+      if (c.version !== doc.currentVersion) await ctx.db.delete(c._id)
+    }
+  },
+})
+
+// Fork a published document into the next draft edition. The live edition stays
+// pinned (liveVersion) and keeps serving operators/QR/RAG until this new draft
+// runs the full author → review → approve → publish cycle. The new version row
+// starts as a copy of the live content so the author edits forward from it.
+export const createNewVersion = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+    if (doc.status !== "published")
+      throw new Error(
+        "Only a published document can be forked into a new version.",
+      )
+
+    const liveVersion = doc.liveVersion ?? doc.currentVersion
+    const liveRow = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id).eq("version", liveVersion),
+      )
+      .unique()
+
+    const newVersion = doc.currentVersion + 1
+    const now = Date.now()
+
+    await ctx.db.patch(args.id, {
+      // Pin liveVersion (covers docs published before this field existed) and
+      // start the working edition; status drops to draft for the new cycle.
+      liveVersion,
+      currentVersion: newVersion,
+      status: "draft",
+      authorId: doc.authorId ?? userId,
+      updatedAt: now,
+    })
+
+    await ctx.db.insert("documentVersions", {
+      documentId: args.id,
+      version: newVersion,
+      bodyKind: liveRow?.bodyKind ?? "tiptap",
+      bodyJson: liveRow?.bodyJson ?? null,
+      pdfStorageId: liveRow?.pdfStorageId ?? null,
+      publishedAt: now,
+      signoffs: [{ role: "author", userId, at: now }],
+    })
+
+    // Mirror the live edition's chunks + image usages onto the new version so
+    // editing and (eventually) re-publishing start from the same content. RAG
+    // still serves the live version (see lookupAfterSearch).
+    const liveChunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id).eq("version", liveVersion),
+      )
+      .collect()
+    for (const c of liveChunks) {
+      await ctx.db.insert("chunks", {
+        documentId: args.id,
+        version: newVersion,
+        seq: c.seq,
+        text: c.text,
+        pageOrSection: c.pageOrSection,
+        embedding: null,
+        embeddingModel: null,
+      })
+    }
+
+    await ctx.runMutation(internal.images.recomputeUsagesForVersion, {
+      documentId: args.id,
+      documentVersion: newVersion,
+      body: liveRow?.bodyJson ?? null,
+    })
+
+    await ctx.scheduler.runAfter(0, internal.ai.embed.embedMissingInternal, {
+      documentId: args.id,
+    })
+
+    return { version: newVersion }
+  },
+})
+
+// Send a document back to draft (reviewer/approver requests changes).
+export const revertToDraft = mutation({
+  args: { id: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+    if (doc.status !== "in_review" && doc.status !== "approved")
+      throw new Error("Only an in-review or approved document can be reverted.")
+    await ctx.db.patch(args.id, { status: "draft", updatedAt: Date.now() })
   },
 })
 

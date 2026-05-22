@@ -21,11 +21,17 @@ import type * as images from "../images.js";
 import type * as importer_jobs from "../importer/jobs.js";
 import type * as importer_map from "../importer/map.js";
 import type * as importer_templates from "../importer/templates.js";
+import type * as lib_assetWalker from "../lib/assetWalker.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_imageWalker from "../lib/imageWalker.js";
 import type * as logs from "../logs.js";
+import type * as naming from "../naming.js";
 import type * as qa from "../qa.js";
+import type * as reset from "../reset.js";
 import type * as seed from "../seed.js";
+import type * as seedAssets from "../seedAssets.js";
+import type * as seedTemplates from "../seedTemplates.js";
+import type * as templates from "../templates.js";
 import type * as users from "../users.js";
 
 import type {
@@ -48,11 +54,17 @@ declare const fullApi: ApiFromModules<{
   "importer/jobs": typeof importer_jobs;
   "importer/map": typeof importer_map;
   "importer/templates": typeof importer_templates;
+  "lib/assetWalker": typeof lib_assetWalker;
   "lib/auth": typeof lib_auth;
   "lib/imageWalker": typeof lib_imageWalker;
   logs: typeof logs;
+  naming: typeof naming;
   qa: typeof qa;
+  reset: typeof reset;
   seed: typeof seed;
+  seedAssets: typeof seedAssets;
+  seedTemplates: typeof seedTemplates;
+  templates: typeof templates;
   users: typeof users;
 }>;
 

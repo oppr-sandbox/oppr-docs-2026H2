@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useLocation } from "wouter"
-import { LayoutList, Layers, Library as LibraryIcon, PlusCircle, Upload } from "lucide-react"
+import { LayoutList, Layers, Library as LibraryIcon, PlusCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -22,7 +22,6 @@ import {
   type DocumentRowAction,
 } from "@/components/docs/DocumentLibraryTable"
 import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
-import { NewDocumentDialog } from "@/components/docs/NewDocumentDialog"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { toast } from "sonner"
@@ -32,8 +31,10 @@ type TypeFilter = DocumentType | "all"
 
 const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All statuses" },
+  { value: "pre_draft", label: "Pre-draft" },
   { value: "draft", label: "Draft" },
   { value: "in_review", label: "In review" },
+  { value: "approved", label: "Approved" },
   { value: "published", label: "Published" },
   { value: "archived", label: "Archived" },
 ]
@@ -151,24 +152,10 @@ export function LibraryPage() {
         title="Document library"
         subtitle="All SOPs, manuals, and work instructions"
         actions={
-          <>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => navigate("/docs/new/import")}
-            >
-              <Upload className="mr-1.5 h-3.5 w-3.5" />
-              Upload PDF
-            </Button>
-            <NewDocumentDialog
-              trigger={
-                <Button size="sm">
-                  <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-                  New document
-                </Button>
-              }
-            />
-          </>
+          <Button size="sm" onClick={() => navigate("/docs/new")}>
+            <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+            New document
+          </Button>
         }
       />
       <div className="space-y-4 p-6">

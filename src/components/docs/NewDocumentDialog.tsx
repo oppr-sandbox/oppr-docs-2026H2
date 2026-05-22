@@ -51,13 +51,13 @@ export function NewDocumentDialog({ trigger }: NewDocumentDialogProps) {
           <PickerCard
             icon={FileText}
             title="Compose new"
-            description="Open the rich-text editor with a starting template for your document type."
-            onClick={() => pick("/docs/new/compose")}
+            description="Open the editor blank or from a template, then set location, discipline, and reviewers."
+            onClick={() => pick("/docs/new")}
           />
           <PickerCard
             icon={Upload}
             title="Attach PDF"
-            description="Keep an existing PDF as-is. We extract per-page text for IDA but render the original PDF in the read view."
+            description="Embed an existing PDF as a scrollable attachment inside an editable document. Per-page text is extracted for IDA."
             onClick={() => pick("/docs/new/import")}
           />
           <PickerCard

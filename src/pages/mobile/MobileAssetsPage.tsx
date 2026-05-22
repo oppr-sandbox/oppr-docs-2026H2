@@ -4,8 +4,8 @@
 // page; tapping the star toggles a localStorage-pinned flag (used on Home).
 
 import { useMemo, useState } from "react"
-import { Link, useLocation } from "wouter"
-import { Map as MapIcon, Search } from "lucide-react"
+import { useLocation } from "wouter"
+import { Search } from "lucide-react"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import { toLegacyAsset } from "@/lib/convex-adapters"
@@ -77,16 +77,6 @@ export function MobileAssetsPage() {
             >
               <Search className="h-5 w-5" />
             </Button>
-            <Link href="/m/floorplan">
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Open floorplan"
-                className="h-10 w-10"
-              >
-                <MapIcon className="h-5 w-5" />
-              </Button>
-            </Link>
           </>
         }
       />

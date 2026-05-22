@@ -61,6 +61,14 @@ interface DocumentHeroProps {
   owner: User | null
   versionNumber: number
   ppeItems?: PpeItem[]
+  /** Lifecycle role display names, resolved server-side. */
+  roles?: {
+    author: string | null
+    reviewer: string | null
+    approver: string | null
+  }
+  /** Override the status badge — the reader shows the live edition's status. */
+  statusOverride?: Doc["status"]
   className?: string
 }
 
@@ -70,6 +78,8 @@ export function DocumentHero({
   owner,
   versionNumber,
   ppeItems = [],
+  roles,
+  statusOverride,
   className,
 }: DocumentHeroProps) {
   const [, navigate] = useLocation()
@@ -84,10 +94,10 @@ export function DocumentHero({
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2">
             <code className="rounded bg-muted px-2 py-0.5 font-mono text-xs font-bold text-foreground">
-              {doc.naming_code}
+              {doc.naming_code || "Pre-draft"}
             </code>
             <TypeBadge type={doc.type} />
-            <StatusBadge status={doc.status} />
+            <StatusBadge status={statusOverride ?? doc.status} />
             <Badge variant="outline" className="text-xs">
               v{versionNumber}
             </Badge>
@@ -96,12 +106,7 @@ export function DocumentHero({
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
               <UserIcon className="h-3.5 w-3.5" />
-              <span>{owner?.name ?? doc.owner_id}</span>
-              {owner && (
-                <Badge variant="outline" className="text-[10px] capitalize">
-                  {owner.role}
-                </Badge>
-              )}
+              <span>{roles?.author ?? owner?.name ?? "Unknown author"}</span>
             </div>
             <span>Updated {formatDate(doc.updated_at)}</span>
             <span>Created {formatDate(doc.created_at)}</span>
@@ -109,8 +114,7 @@ export function DocumentHero({
         </div>
       </div>
 
-      {(assets.length > 0 || doc.tags.length > 0 || ppeItems.length > 0) && (
-        <div className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-3">
+      <div className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-3">
           <Section label="Linked assets">
             {assets.length === 0 ? (
               <span className="text-xs text-muted-foreground">None</span>
@@ -130,18 +134,17 @@ export function DocumentHero({
               </div>
             )}
           </Section>
-          <Section label="Tags">
-            {doc.tags.length === 0 ? (
-              <span className="text-xs text-muted-foreground">None</span>
-            ) : (
-              <div className="flex flex-wrap gap-1">
-                {doc.tags.map((t) => (
-                  <Badge key={t} variant="secondary" className="text-[10px]">
-                    {t}
-                  </Badge>
-                ))}
+          <Section label="Review & approval">
+            <div className="space-y-0.5 text-[11px]">
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Reviewer</span>
+                <span className="truncate">{roles?.reviewer ?? "—"}</span>
               </div>
-            )}
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Approver</span>
+                <span className="truncate">{roles?.approver ?? "—"}</span>
+              </div>
+            </div>
           </Section>
           <Section label="Required PPE">
             {ppeItems.length === 0 ? (
@@ -164,7 +167,6 @@ export function DocumentHero({
             )}
           </Section>
         </div>
-      )}
     </div>
   )
 }

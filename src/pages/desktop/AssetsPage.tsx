@@ -19,19 +19,13 @@ import {
   Map as MapIcon,
   MapPin,
   Pencil,
+  Plus,
   QrCode,
   Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -44,11 +38,14 @@ import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset, toLegacyAssetLog } from "@/lib/convex-adapters"
-import type { Asset, AssetLog } from "@/types"
+import type { Asset, AssetLog, Doc } from "@/types"
+import type { DocumentRowAction } from "@/components/docs/DocumentLibraryTable"
 import { cn } from "@/lib/utils"
 import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
-import { EditAssetModal } from "@/components/docs/EditAssetModal"
+import { AssetDetailModal } from "@/components/docs/AssetDetailModal"
+import { AddAssetModal } from "@/components/docs/AddAssetModal"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
+import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
 import {
   DocsHoverPill,
   FloorplanModal,
@@ -60,7 +57,7 @@ import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { toast } from "sonner"
 
-const FLOORPLAN_OPTIONS = ["Pigment Calcination Floorplan"]
+const FLOORPLAN_NAME = "Pigment Calcination Floorplan"
 
 function formatCreated(iso: string): string {
   try {
@@ -77,17 +74,21 @@ function formatCreated(iso: string): string {
 export function AssetsPage() {
   const [, navigate] = useLocation()
 
-  const [selectedFloorplan, setSelectedFloorplan] = useState(FLOORPLAN_OPTIONS[0])
   const [view, setView] = useState<"grid" | "list">("list")
   const [tab, setTab] = useState<"list" | "hierarchy">("list")
   const [floorplanOpen, setFloorplanOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
 
+  const [detailAssetId, setDetailAssetId] = useState<Id<"assets"> | null>(null)
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null)
-  const [editAsset, setEditAsset] = useState<Asset | null>(null)
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
   const result = useQuery(api.assets.listForAssetsPage)
   const updateAssetMut = useMutation(api.assets.update)
+  const archive = useMutation(api.documents.archive)
+  const remove = useMutation(api.documents.remove)
+  const [docToDelete, setDocToDelete] = useState<Doc | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const ready = result !== undefined
 
   const assets = useMemo(
@@ -113,35 +114,92 @@ export function AssetsPage() {
     return map
   }, [result])
 
-  async function handleSaveEdit(patch: {
-    name: string
-    code: string
-    description: string
-    level: number
-  }) {
-    if (!editAsset) return
+  async function handleSaveAsset(
+    assetId: string,
+    patch: { name: string; code: string; description: string; level: number },
+  ) {
     try {
       await updateAssetMut({
-        id: editAsset.id as Id<"assets">,
+        id: assetId as Id<"assets">,
         name: patch.name,
         code: patch.code,
         description: patch.description,
         level: patch.level,
       })
       toast.success("Asset updated")
-      setEditAsset(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update asset")
     }
   }
 
+  function handleDocAction(action: DocumentRowAction, doc: Doc) {
+    if (action === "open") {
+      navigate(`/docs/${doc.id}`)
+      return
+    }
+    if (action === "copy-id") {
+      navigator.clipboard
+        .writeText(doc.naming_code)
+        .then(() => toast.success(`Copied ${doc.naming_code}`))
+        .catch(() => toast.error("Failed to copy"))
+      return
+    }
+    if (action === "duplicate") {
+      toast.info("Duplicate isn't wired up yet.")
+      return
+    }
+    if (action === "archive") {
+      archive({ id: doc.id as Id<"documents"> })
+        .then(() => toast.success(`Archived ${doc.naming_code}`))
+        .catch((err) =>
+          toast.error(err instanceof Error ? err.message : "Failed to archive"),
+        )
+      return
+    }
+    if (action === "delete") {
+      setDocToDelete(doc)
+    }
+  }
+
+  async function handleArchiveFromDialog() {
+    if (!docToDelete) return
+    try {
+      await archive({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Archived ${docToDelete.naming_code}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to archive")
+    } finally {
+      setDocToDelete(null)
+    }
+  }
+
+  async function handleDeleteConfirm() {
+    if (!docToDelete) return
+    setDeleting(true)
+    try {
+      await remove({ id: docToDelete.id as Id<"documents"> })
+      toast.success(`Deleted ${docToDelete.naming_code}`)
+      setDocToDelete(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col">
-      <TopBar breadcrumb={[{ label: "Assets" }]} />
+      <TopBar breadcrumb={[{ label: "Site Assets" }]} />
       <PageHeader
         icon={Factory}
-        title="Project Assets"
-        subtitle="Manage and view all assets linked to this project"
+        title="Site Assets"
+        subtitle="Manage and view all assets on this site"
+        actions={
+          <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            Add asset
+          </Button>
+        }
       />
 
       <div className="space-y-4 p-6">
@@ -154,21 +212,6 @@ export function AssetsPage() {
             </TabsList>
           </Tabs>
           <div className="flex items-center gap-2">
-            <span className="hidden text-xs text-muted-foreground md:inline">
-              Floorplan:
-            </span>
-            <Select value={selectedFloorplan} onValueChange={setSelectedFloorplan}>
-              <SelectTrigger className="h-8 w-56 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FLOORPLAN_OPTIONS.map((fp) => (
-                  <SelectItem key={fp} value={fp}>
-                    {fp}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
               <Button
                 variant={view === "grid" ? "secondary" : "ghost"}
@@ -240,7 +283,7 @@ export function AssetsPage() {
                   <TableRow
                     key={asset.id}
                     className="cursor-pointer"
-                    onClick={() => navigate(`/assets/${asset.id}`)}
+                    onClick={() => setDetailAssetId(asset.id as Id<"assets">)}
                   >
                     {/* # */}
                     <TableCell className="align-middle text-sm font-medium tabular-nums">
@@ -325,7 +368,7 @@ export function AssetsPage() {
                           size="icon"
                           className="h-8 w-8"
                           aria-label="Edit asset"
-                          onClick={() => setEditAsset(asset)}
+                          onClick={() => setDetailAssetId(asset.id as Id<"assets">)}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -352,26 +395,34 @@ export function AssetsPage() {
         )}
       </div>
 
+      <AssetDetailModal
+        assetId={detailAssetId}
+        onClose={() => setDetailAssetId(null)}
+        onShowQr={(a) => setPreviewAsset(a)}
+        onSave={handleSaveAsset}
+        onOpenDoc={(docId) => {
+          setDetailAssetId(null)
+          navigate(`/docs/${docId}`)
+        }}
+        onOpenAsset={(aid) => setDetailAssetId(aid as Id<"assets">)}
+        onOpenLog={(log) => setActiveLog(log)}
+        onDocAction={handleDocAction}
+      />
       <AssetPreviewModal
         asset={previewAsset}
         open={!!previewAsset}
         onOpenChange={(o) => !o && setPreviewAsset(null)}
-      />
-      <EditAssetModal
-        asset={editAsset}
-        open={!!editAsset}
-        onOpenChange={(o) => !o && setEditAsset(null)}
-        onSave={handleSaveEdit}
       />
       <LogReferenceModal
         log={activeLog}
         open={!!activeLog}
         onOpenChange={(o) => !o && setActiveLog(null)}
       />
+      <AddAssetModal open={addOpen} onOpenChange={setAddOpen} />
       <FloorplanModal
         open={floorplanOpen}
         onOpenChange={setFloorplanOpen}
-        floorplanName={selectedFloorplan}
+        floorplanName={FLOORPLAN_NAME}
         imageSrc={FLOORPLAN_IMAGE_SRC}
         assets={assets}
         docsByAsset={docsByAsset}
@@ -382,6 +433,14 @@ export function AssetsPage() {
           navigate(`/docs/${docId}`)
         }}
         onOpenLog={(log) => setActiveLog(log)}
+      />
+      <DeleteDocumentDialog
+        doc={docToDelete}
+        open={!!docToDelete}
+        onOpenChange={(o) => !o && !deleting && setDocToDelete(null)}
+        onArchive={() => void handleArchiveFromDialog()}
+        onConfirmDelete={() => void handleDeleteConfirm()}
+        busy={deleting}
       />
     </div>
   )

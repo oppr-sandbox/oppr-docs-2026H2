@@ -60,6 +60,12 @@ interface DocumentLibraryTableProps {
   className?: string
 }
 
+// A live (published) document with a newer edition being drafted: the live
+// version stays online while current_version runs the cycle ahead of it.
+function hasWorkingDraft(doc: Doc): boolean {
+  return doc.live_version != null && doc.current_version > doc.live_version
+}
+
 function formatUpdated(iso: string): string {
   try {
     return format(new Date(iso), "MMM d, yyyy")
@@ -117,7 +123,9 @@ export function DocumentLibraryTable({
               >
                 <TableCell>
                   <div className="font-mono text-xs font-bold">
-                    {doc.naming_code}
+                    {doc.naming_code || (
+                      <span className="text-muted-foreground">Pre-draft</span>
+                    )}
                   </div>
                   <div className="text-sm font-normal text-muted-foreground">
                     {doc.title}
@@ -127,11 +135,22 @@ export function DocumentLibraryTable({
                   <TypeBadge type={doc.type} />
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={doc.status} />
+                  <div className="flex flex-col items-start gap-1">
+                    <StatusBadge
+                      status={
+                        hasWorkingDraft(doc) ? "published" : doc.status
+                      }
+                    />
+                    {hasWorkingDraft(doc) && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                        v{doc.current_version} {doc.status}
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs font-medium text-muted-foreground tabular-nums">
-                    v{doc.current_version}
+                    v{doc.live_version ?? doc.current_version}
                   </span>
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>

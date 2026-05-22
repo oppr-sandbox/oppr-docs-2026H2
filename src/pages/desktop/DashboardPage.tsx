@@ -24,13 +24,14 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
-import { NewDocumentDialog } from "@/components/docs/NewDocumentDialog"
 import { toLegacyDoc } from "@/lib/convex-adapters"
 import type { DocumentStatus } from "@/types"
 
 const STATUS_LABEL: Record<DocumentStatus, string> = {
+  pre_draft: "Pre-draft",
   draft: "Draft",
   in_review: "In review",
+  approved: "Approved",
   published: "Published",
   archived: "Archived",
 }
@@ -64,8 +65,10 @@ export function DashboardPage() {
 
   const counts = useMemo(() => {
     const c: Record<DocumentStatus, number> = {
+      pre_draft: 0,
       draft: 0,
       in_review: 0,
+      approved: 0,
       published: 0,
       archived: 0,
     }
@@ -104,26 +107,23 @@ export function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-2">
-              <NewDocumentDialog
-                trigger={
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-auto flex-col gap-1 py-3"
-                  >
-                    <PlusCircle className="h-4 w-4" />
-                    <span className="text-xs">New document</span>
-                  </Button>
-                }
-              />
               <Button
                 variant="outline"
                 size="sm"
                 className="h-auto flex-col gap-1 py-3"
-                onClick={() => navigate("/docs/new/import")}
+                onClick={() => navigate("/docs/new")}
+              >
+                <PlusCircle className="h-4 w-4" />
+                <span className="text-xs">New document</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-auto flex-col gap-1 py-3"
+                onClick={() => navigate("/import")}
               >
                 <Upload className="h-4 w-4" />
-                <span className="text-xs">Upload PDF</span>
+                <span className="text-xs">Import PDF</span>
               </Button>
               <Button
                 variant="outline"

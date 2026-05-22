@@ -3,8 +3,10 @@ import { cn } from "@/lib/utils"
 import type { DocumentStatus } from "@/types"
 
 const LABELS: Record<DocumentStatus, string> = {
+  pre_draft: "Pre-draft",
   draft: "Draft",
   in_review: "In review",
+  approved: "Approved",
   published: "Published",
   archived: "Archived",
 }
@@ -25,6 +27,18 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   const label = LABELS[status] ?? status
 
   switch (status) {
+    case "pre_draft":
+      return (
+        <Badge
+          variant="outline"
+          className={cn(
+            "border-dashed border-muted-foreground/50 text-muted-foreground",
+            className,
+          )}
+        >
+          {label}
+        </Badge>
+      )
     case "draft":
       return (
         <Badge variant="secondary" className={cn("font-medium", className)}>
@@ -37,6 +51,18 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
           variant="outline"
           className={cn(
             "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-50",
+            className,
+          )}
+        >
+          {label}
+        </Badge>
+      )
+    case "approved":
+      return (
+        <Badge
+          variant="outline"
+          className={cn(
+            "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
             className,
           )}
         >

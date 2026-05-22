@@ -141,7 +141,16 @@ export const lookupAfterSearch = internalQuery({
     ).filter((d): d is Doc<"documents"> => d !== null)
     const docById = new Map(docs.map((d) => [d._id, d]))
 
-    return filteredChunks.map((c) => {
+    // Only serve the live (published) edition. A document being re-drafted keeps
+    // chunks for both the live version and the in-progress one; the draft must
+    // never leak into answers until it is published and becomes the live version.
+    const liveChunks = filteredChunks.filter((c) => {
+      const d = docById.get(c.documentId)
+      if (!d) return false
+      return c.version === (d.liveVersion ?? d.currentVersion)
+    })
+
+    return liveChunks.map((c) => {
       const d = docById.get(c.documentId)
       return {
         chunkId: c._id,

@@ -116,7 +116,7 @@ export function MobileDocPage() {
   )
   const ready = idIsConvexShaped ? docResult !== undefined : true
   const currentVersion = useQuery(
-    api.documents.getCurrentVersion,
+    api.documents.getServingVersion,
     id && idIsConvexShaped ? { documentId: id as Id<"documents"> } : "skip",
   )
   const pdfUrl = useQuery(

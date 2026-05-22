@@ -11,7 +11,18 @@ import {
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useQuery } from "convex/react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { toast } from "sonner"
+import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { toLegacyAsset, toLegacyDoc } from "@/lib/convex-adapters"
@@ -31,7 +42,10 @@ export function DocumentReadPage() {
   const [, navigate] = useLocation()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [overrideVersion, setOverrideVersion] = useState<number | null>(null)
+  const [forkOpen, setForkOpen] = useState(false)
+  const [forking, setForking] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+  const createNewVersion = useMutation(api.documents.createNewVersion)
 
   const initialPage = useMemo(() => {
     const p = new URLSearchParams(search).get("page")
@@ -45,7 +59,7 @@ export function DocumentReadPage() {
     id ? { id: id as Id<"documents"> } : "skip",
   )
   const currentVersion = useQuery(
-    api.documents.getCurrentVersion,
+    api.documents.getServingVersion,
     id ? { documentId: id as Id<"documents"> } : "skip",
   )
   const pdfUrl = useQuery(
@@ -78,6 +92,41 @@ export function DocumentReadPage() {
   }, [currentVersion])
 
   const owner = null
+
+  const rawDoc = docResult?.doc
+  const liveVer = rawDoc?.liveVersion ?? null
+  const workingVer = rawDoc?.currentVersion ?? 1
+  const workingStatus = rawDoc?.status
+  // A published edition is live; editing it forks the next draft. A working
+  // draft exists when the latest edition is ahead of the live one.
+  const isPublished = workingStatus === "published"
+  const hasWorkingDraft = liveVer != null && workingVer > liveVer
+
+  function goEdit() {
+    if (rawDoc) navigate(`/docs/${rawDoc._id}/edit`)
+  }
+  function handleEdit() {
+    if (!rawDoc) return
+    // Published editions are read-only — confirm forking a new version first.
+    if (isPublished) setForkOpen(true)
+    else goEdit()
+  }
+  async function confirmFork() {
+    if (!rawDoc) return
+    setForking(true)
+    try {
+      const res = await createNewVersion({ id: rawDoc._id })
+      toast.success(`Started v${res.version} draft`)
+      setForkOpen(false)
+      navigate(`/docs/${rawDoc._id}/edit`)
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't create a new version",
+      )
+    } finally {
+      setForking(false)
+    }
+  }
 
   if (!ready) {
     return (
@@ -120,7 +169,11 @@ export function DocumentReadPage() {
         />
         <PageHeader
           title={`${docWithAssets.naming_code} · ${docWithAssets.title}`}
-          subtitle={`v${renderedVersionNumber} · ${docWithAssets.status}`}
+          subtitle={
+            hasWorkingDraft
+              ? `v${renderedVersionNumber} · Live`
+              : `v${renderedVersionNumber} · ${docWithAssets.status}`
+          }
           actions={
             <>
               <Button
@@ -151,12 +204,9 @@ export function DocumentReadPage() {
                   </Button>
                 }
               />
-              <Button
-                size="sm"
-                onClick={() => navigate(`/docs/${docWithAssets.id}/edit`)}
-              >
+              <Button size="sm" onClick={handleEdit}>
                 <Edit className="mr-1 h-3.5 w-3.5" />
-                Edit
+                {isPublished ? "New version" : "Edit"}
               </Button>
             </>
           }
@@ -165,6 +215,22 @@ export function DocumentReadPage() {
 
       <div className="grid flex-1 gap-6 p-6 lg:grid-cols-[1fr_240px] print:block print:p-0">
         <div className="min-w-0 space-y-4">
+          {hasWorkingDraft && !isViewingHistorical && (
+            <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100 print:hidden">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="flex items-center justify-between gap-3">
+                <span>
+                  You are viewing the live v{liveVer}. A newer edition (v
+                  {workingVer}) is in progress
+                  {workingStatus ? ` · ${workingStatus}` : ""} and will replace it
+                  once published.
+                </span>
+                <Button size="sm" variant="outline" onClick={goEdit}>
+                  Open in editor
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           {isViewingHistorical && (
             <Alert className="print:hidden">
               <AlertTriangle className="h-4 w-4" />
@@ -190,6 +256,10 @@ export function DocumentReadPage() {
             owner={owner}
             versionNumber={renderedVersionNumber}
             ppeItems={ppeItems}
+            roles={docResult?.roles}
+            statusOverride={
+              hasWorkingDraft && !isViewingHistorical ? "published" : undefined
+            }
           />
 
           {version == null ? (
@@ -213,6 +283,32 @@ export function DocumentReadPage() {
           )}
         </aside>
       </div>
+
+      <AlertDialog open={forkOpen} onOpenChange={setForkOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Create a new version?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This document is published. You are about to create version v
+              {workingVer + 1}, starting as a draft copy of the live v
+              {liveVer ?? workingVer}. The live version stays online for
+              operators until the new one is reviewed, approved, and published.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={forking}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmFork()
+              }}
+              disabled={forking}
+            >
+              {forking ? "Creating…" : `Create v${workingVer + 1} draft`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <VersionHistoryDrawer
         documentId={docWithAssets.id}

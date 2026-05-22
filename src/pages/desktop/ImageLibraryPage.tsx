@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Image as ImageIcon,
   Search,
+  Shapes,
   Trash2,
   X,
 } from "lucide-react"
@@ -31,6 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -216,10 +220,21 @@ export function ImageLibraryPage() {
       <PageHeader
         icon={ImageIcon}
         title="Image library"
-        subtitle="Every image referenced in any document. Click a row for the detail view; use the checkboxes to bulk-delete orphans."
+        subtitle="Every image and diagram referenced in any document. Click a row for the detail view; use the checkboxes to bulk-delete orphans."
       />
 
-      <div className="space-y-4 p-6">
+      <div className="p-6">
+        <Tabs defaultValue="images" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="images" className="text-xs">
+              <ImageIcon className="mr-1.5 h-3.5 w-3.5" /> Images
+            </TabsTrigger>
+            <TabsTrigger value="diagrams" className="text-xs">
+              <Shapes className="mr-1.5 h-3.5 w-3.5" /> Diagrams
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="images" className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative max-w-sm flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -322,6 +337,20 @@ export function ImageLibraryPage() {
             onOpenDetail={setDetail}
           />
         )}
+          </TabsContent>
+
+          <TabsContent value="diagrams">
+            <div className="rounded-md border border-dashed p-10 text-center">
+              <Shapes className="mx-auto h-8 w-8 text-muted-foreground" />
+              <div className="mt-2 text-sm font-medium">No saved diagrams yet</div>
+              <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+                Diagrams you build will be collected here. The diagram builder is
+                coming soon — for now, insert curated presets from the editor
+                toolbar.
+              </p>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       <ImageDetailModal
@@ -625,6 +654,15 @@ function GroupedList({
     })
   }
 
+  const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(g.key))
+  const allExpanded = collapsed.size === 0
+  function expandAll() {
+    setCollapsed(new Set())
+  }
+  function collapseAll() {
+    setCollapsed(new Set(groups.map((g) => g.key)))
+  }
+
   if (!ready) {
     return (
       <div className="space-y-2">
@@ -645,6 +683,31 @@ function GroupedList({
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">
+          {groups.length} group{groups.length === 1 ? "" : "s"}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={expandAll}
+            disabled={allExpanded}
+          >
+            <ChevronsUpDown className="mr-1 h-3 w-3" /> Expand all
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={collapseAll}
+            disabled={allCollapsed}
+          >
+            <ChevronsDownUp className="mr-1 h-3 w-3" /> Collapse all
+          </Button>
+        </div>
+      </div>
       {groups.map((g) => {
         const isCollapsed = collapsed.has(g.key)
         const headerToneClass =

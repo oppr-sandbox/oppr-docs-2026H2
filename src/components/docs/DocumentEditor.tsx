@@ -46,8 +46,9 @@ import {
   Image as ImageIcon,
   Table as TableIcon,
   Minus,
-  Hash,
+  Factory,
   Play,
+  BookMarked,
   Type,
   HardHat,
   ChevronDown,
@@ -58,12 +59,14 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { LaunchLogNode, LaunchLogPicker } from "./LaunchLogBlock"
 import { LinkedAssetNode, LinkedAssetPicker } from "./LinkedAssetBlock"
+import { ReferenceDocNode, ReferenceDocPicker } from "./ReferenceDocBlock"
 import { InsertImageDialog } from "./InsertImageDialog"
 import { InsertLinkDialog } from "./InsertLinkDialog"
 import { CalloutNode, type CalloutKind } from "./CalloutBlock"
 import { PpeNode, PpePicker, PpeQuickPalette, type PpeItem } from "./PpeBlock"
 import { DiagramNode, DiagramPicker } from "./DiagramBlock"
 import { StepListNode, StepItemNode } from "./StepListBlock"
+import { PdfAttachmentNode } from "./PdfAttachmentBlock"
 import { SafetyPalette } from "./SafetyPalette"
 import {
   DropdownMenu,
@@ -102,6 +105,7 @@ function makeSlashItems(
   openDiagramPicker: () => void,
   insertCallout: (kind: CalloutKind) => void,
   insertSteps: () => void,
+  openReferenceDocPicker: () => void,
 ): SlashItem[] {
   return [
     {
@@ -197,10 +201,17 @@ function makeSlashItems(
     },
     {
       key: "linked-asset",
-      label: "Linked asset…",
-      hint: "Reference an asset inline",
-      icon: <Hash className="h-4 w-4 text-emerald-600" />,
+      label: "Assets…",
+      hint: "Reference a machine / asset inline",
+      icon: <Factory className="h-4 w-4 text-emerald-600" />,
       run: () => openAssetPicker(),
+    },
+    {
+      key: "reference-doc",
+      label: "Reference document…",
+      hint: "Cite another document — added to the References table on publish",
+      icon: <BookMarked className="h-4 w-4 text-indigo-600" />,
+      run: () => openReferenceDocPicker(),
     },
   ]
 }
@@ -258,9 +269,20 @@ function ToolbarDivider() {
   return <div className="mx-1 h-6 w-px bg-border" />
 }
 
-function ToolbarGroup({ children }: { children: ReactNode }) {
+function ToolbarGroup({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
   return (
-    <div className="flex items-center gap-0.5 border-l border-border pl-2 first:border-l-0 first:pl-0">
+    <div
+      className={cn(
+        "flex items-center gap-0.5 border-l border-border pl-2 first:border-l-0 first:pl-0",
+        className,
+      )}
+    >
       {children}
     </div>
   )
@@ -280,6 +302,7 @@ export function DocumentEditor({
   const [slash, setSlash] = useState<SlashMenuState>(CLOSED_SLASH)
   const [logPickerOpen, setLogPickerOpen] = useState(false)
   const [assetPickerOpen, setAssetPickerOpen] = useState(false)
+  const [referenceDocPickerOpen, setReferenceDocPickerOpen] = useState(false)
   const [ppePickerOpen, setPpePickerOpen] = useState(false)
   const [diagramPickerOpen, setDiagramPickerOpen] = useState(false)
   const [imageDialogOpen, setImageDialogOpen] = useState(false)
@@ -304,11 +327,13 @@ export function DocumentEditor({
       TableCell,
       LaunchLogNode,
       LinkedAssetNode,
+      ReferenceDocNode,
       CalloutNode,
       PpeNode,
       DiagramNode,
       StepListNode,
       StepItemNode,
+      PdfAttachmentNode,
     ],
     content: content as object | string,
     editable,
@@ -495,6 +520,20 @@ export function DocumentEditor({
             .run()
           closeSlash()
         },
+        () => {
+          if (editor) {
+            editor
+              .chain()
+              .focus()
+              .deleteRange({
+                from: slash.triggerFrom,
+                to: editor.state.selection.from,
+              })
+              .run()
+          }
+          closeSlash()
+          setReferenceDocPickerOpen(true)
+        },
       ),
     [editor, slash.triggerFrom, closeSlash],
   )
@@ -567,6 +606,15 @@ export function DocumentEditor({
   function handleInsertLinkedAsset(attrs: { assetId: string; label: string }) {
     if (!editor) return
     editor.chain().focus().insertLinkedAsset(attrs).run()
+  }
+
+  function handleInsertReferenceDoc(attrs: {
+    docId: string
+    code: string
+    label: string
+  }) {
+    if (!editor) return
+    editor.chain().focus().insertReferenceDoc(attrs).run()
   }
 
   // --- Toolbar callbacks ---------------------------------------------------
@@ -668,7 +716,7 @@ export function DocumentEditor({
     <div ref={containerRef} className="relative">
       {editable && (
         <div
-          className="sticky z-10 flex flex-wrap items-center gap-2 rounded-t-md border border-b-0 bg-background p-1.5"
+          className="sticky z-10 flex flex-wrap items-center gap-2 rounded-t-md border border-b-0 bg-muted p-1.5 shadow-sm"
           style={{ top: toolbarTopOffset }}
         >
           {/* Heading select — left-most */}
@@ -789,9 +837,6 @@ export function DocumentEditor({
             >
               <LinkIcon className="h-4 w-4" />
             </ToolbarButton>
-            <ToolbarButton title="Image" onClick={insertImage}>
-              <ImageIcon className="h-4 w-4" />
-            </ToolbarButton>
             <ToolbarButton title="Table" onClick={insertTable}>
               <TableIcon className="h-4 w-4" />
             </ToolbarButton>
@@ -804,33 +849,60 @@ export function DocumentEditor({
           </ToolbarGroup>
 
           {!compact && (
-            <ToolbarGroup>
-              <SafetyPalette
-                onSelect={(kind) =>
-                  editor.chain().focus().insertCallout(kind).run()
-                }
-              />
-              <PpeQuickPalette
-                onInsert={(items: PpeItem[]) =>
-                  editor.chain().focus().insertPpe(items).run()
-                }
-              />
-              <ToolbarButton title="Diagram" onClick={() => setDiagramPickerOpen(true)}>
-                <DiagramIcon className="h-4 w-4 text-purple-600" />
-              </ToolbarButton>
-              <ToolbarButton
-                title="Launch log"
-                onClick={() => setLogPickerOpen(true)}
-              >
-                <Play className="h-4 w-4 text-sky-600" />
-              </ToolbarButton>
-              <ToolbarButton
-                title="Linked asset"
-                onClick={() => setAssetPickerOpen(true)}
-              >
-                <Hash className="h-4 w-4 text-emerald-600" />
-              </ToolbarButton>
-            </ToolbarGroup>
+            <>
+              {/* Group: Safety */}
+              <ToolbarGroup>
+                <SafetyPalette
+                  onSelect={(kind) =>
+                    editor.chain().focus().insertCallout(kind).run()
+                  }
+                />
+                <PpeQuickPalette
+                  onInsert={(items: PpeItem[]) =>
+                    editor.chain().focus().insertPpe(items).run()
+                  }
+                />
+              </ToolbarGroup>
+
+              {/* Group: Figures — image + diagram */}
+              <ToolbarGroup>
+                <ToolbarButton title="Image" onClick={insertImage}>
+                  <ImageIcon className="h-4 w-4" />
+                </ToolbarButton>
+                <ToolbarButton
+                  title="Diagram"
+                  onClick={() => setDiagramPickerOpen(true)}
+                >
+                  <DiagramIcon className="h-4 w-4 text-purple-600" />
+                </ToolbarButton>
+              </ToolbarGroup>
+
+              {/* Group: Links — assets + reference documents */}
+              <ToolbarGroup>
+                <ToolbarButton
+                  title="Assets"
+                  onClick={() => setAssetPickerOpen(true)}
+                >
+                  <Factory className="h-4 w-4 text-emerald-600" />
+                </ToolbarButton>
+                <ToolbarButton
+                  title="Reference document"
+                  onClick={() => setReferenceDocPickerOpen(true)}
+                >
+                  <BookMarked className="h-4 w-4 text-indigo-600" />
+                </ToolbarButton>
+              </ToolbarGroup>
+
+              {/* Launch log — handoff to LOGS, pushed to the far right */}
+              <ToolbarGroup className="ml-auto">
+                <ToolbarButton
+                  title="Launch log"
+                  onClick={() => setLogPickerOpen(true)}
+                >
+                  <Play className="h-4 w-4 text-sky-600" />
+                </ToolbarButton>
+              </ToolbarGroup>
+            </>
           )}
         </div>
       )}
@@ -874,6 +946,7 @@ export function DocumentEditor({
                     const opensDialog =
                       item.key === "launch-log" ||
                       item.key === "linked-asset" ||
+                      item.key === "reference-doc" ||
                       item.key === "ppe" ||
                       item.key === "diagram"
                     if (!opensDialog) {
@@ -902,6 +975,11 @@ export function DocumentEditor({
         open={logPickerOpen}
         onOpenChange={setLogPickerOpen}
         onSelect={handleInsertLaunchLog}
+      />
+      <ReferenceDocPicker
+        open={referenceDocPickerOpen}
+        onOpenChange={setReferenceDocPickerOpen}
+        onSelect={handleInsertReferenceDoc}
       />
       <LinkedAssetPicker
         open={assetPickerOpen}

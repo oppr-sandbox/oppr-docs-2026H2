@@ -16,7 +16,19 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react"
-import { Check, HardHat, Glasses, Footprints, Shirt, Shield, Wind, Ear } from "lucide-react"
+import {
+  Check,
+  CornerDownLeft,
+  Ear,
+  Footprints,
+  Glasses,
+  HardHat,
+  Plus,
+  Shield,
+  Shirt,
+  Trash2,
+  Wind,
+} from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -111,16 +123,118 @@ function parseItems(raw: string | undefined): PpeItem[] {
     .filter((s): s is PpeItem => (PPE_ORDER as string[]).includes(s))
 }
 
-function PpeView({ node }: NodeViewProps) {
+function PpeView({
+  node,
+  updateAttributes,
+  deleteNode,
+  editor,
+  getPos,
+  selected,
+}: NodeViewProps) {
   const items = parseItems(node.attrs.items as string | undefined)
+  const editable = editor?.isEditable ?? false
+  const [editOpen, setEditOpen] = useState(false)
+
+  function toggle(it: PpeItem) {
+    const set = new Set(items)
+    if (set.has(it)) set.delete(it)
+    else set.add(it)
+    updateAttributes({ items: PPE_ORDER.filter((x) => set.has(x)).join(",") })
+  }
+
+  function addLineBelow() {
+    if (typeof getPos !== "function") return
+    const pos = getPos() + node.nodeSize
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(pos, { type: "paragraph" })
+      .setTextSelection(pos + 1)
+      .run()
+  }
+
+  const controls = editable ? (
+    <div
+      contentEditable={false}
+      className={cn(
+        "absolute right-1 top-1 flex items-center gap-0.5 rounded-md border bg-background/95 p-0.5 shadow-sm backdrop-blur transition-opacity",
+        selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+      )}
+    >
+      <Popover open={editOpen} onOpenChange={setEditOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            title="Add / remove PPE"
+            className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] hover:bg-muted"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            PPE
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" sideOffset={6} className="w-[300px] p-2">
+          <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <HardHat className="h-3 w-3" />
+            Required PPE
+          </div>
+          <div className="grid grid-cols-2 gap-1">
+            {PPE_ORDER.map((it) => {
+              const meta = PPE_META[it]
+              const Icon = meta.icon
+              const on = items.includes(it)
+              return (
+                <button
+                  key={it}
+                  type="button"
+                  onClick={() => toggle(it)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-[11px] font-medium transition-colors",
+                    on
+                      ? "border-orange-400 bg-orange-100 text-orange-900 dark:bg-orange-500/20 dark:text-orange-100"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="flex-1 truncate">{meta.label}</span>
+                  {on && <Check className="h-3 w-3" />}
+                </button>
+              )
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+      <button
+        type="button"
+        title="Add line below"
+        onClick={addLineBelow}
+        className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-muted"
+      >
+        <CornerDownLeft className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        title="Remove PPE row"
+        onClick={() => deleteNode()}
+        className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  ) : null
+
   if (!items.length) {
     return (
       <NodeViewWrapper
         as="div"
         data-ppe
-        className="my-3 flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+        className={cn(
+          "group relative my-3 flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground",
+          selected && "ring-2 ring-orange-300 ring-offset-1",
+        )}
       >
-        Required PPE: (none configured — edit to pick)
+        Required PPE: none yet — use the
+        <span className="font-medium"> + PPE</span> button to add.
+        {controls}
       </NodeViewWrapper>
     )
   }
@@ -129,7 +243,10 @@ function PpeView({ node }: NodeViewProps) {
       as="div"
       data-ppe
       data-items={items.join(",")}
-      className="my-3 flex flex-wrap items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 dark:border-orange-500/40 dark:bg-orange-500/10"
+      className={cn(
+        "group relative my-3 flex flex-wrap items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 dark:border-orange-500/40 dark:bg-orange-500/10",
+        selected && "ring-2 ring-orange-300 ring-offset-1",
+      )}
     >
       <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-900 dark:text-orange-200">
         Required PPE
@@ -149,6 +266,7 @@ function PpeView({ node }: NodeViewProps) {
           )
         })}
       </div>
+      {controls}
     </NodeViewWrapper>
   )
 }

@@ -153,7 +153,7 @@ async function callGemini(
     .trim()
   try {
     return JSON.parse(cleaned)
-  } catch (e) {
+  } catch {
     const head = cleaned.slice(0, 200)
     throw new Error(`Failed to parse JSON response. Starts with: ${head}`)
   }

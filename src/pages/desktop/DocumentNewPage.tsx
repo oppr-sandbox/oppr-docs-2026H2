@@ -1,30 +1,32 @@
 // DocumentNewPage
 //
-// Entry point for "New document". Two modes (selected by `?kind=`):
+// Entry point for "New document", reached from the chooser:
+//   • /docs/new/compose?blank=1        — empty editor
+//   • /docs/new/compose?template=<id>  — editor seeded from a DB template
+//   • /docs/new/import                 — PDF upload, embedded as an attachment
+//                                        node inside an otherwise normal doc
 //
-//   • TipTap (default)    — metadata form + a small inline editor for the
-//                           initial body. Submit creates the document, publishes
-//                           v1, extracts chunks, and navigates to /docs/:id/edit.
-//
-//   • PDF (?kind=pdf)     — drop-zone + same metadata form. Submit parses the
-//                           PDF locally with pdfjs-dist (page count + per-page
-//                           text), inserts a `pdf_blobs` row, creates the
-//                           document, publishes v1 referencing the blob, and
-//                           extracts page-level chunks.
-//
-// Both flows reuse `MetadataPanel` + `validateMetadata`.
+// The naming code is built server-side from Location + Discipline + Type +
+// auto sequence. Linked assets are derived from the body. All flows call
+// documents.create.
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation } from "wouter"
 import { toast } from "sonner"
 import { Upload, FileText, X } from "lucide-react"
 import * as pdfjs from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
-import { useMutation } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card"
 import { DocumentEditor } from "@/components/docs/DocumentEditor"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -37,7 +39,8 @@ import {
   chunksFromPdfPages,
   chunksFromTipTap,
 } from "@/components/docs/chunking"
-import { templateForType } from "@/components/docs/DocumentTemplates"
+import { walkBodyAssetIds } from "@/lib/bodyAssets"
+import { walkBodyRefs } from "@/lib/bodyRefs"
 import type { DocumentType } from "@/types"
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -47,64 +50,35 @@ const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] }
 function defaultMetadata(): MetadataValue {
   return {
     title: "",
-    type: "sop" as DocumentType,
-    ownerId: "",
-    tags: [],
-    assetIds: [],
-    namingCode: "",
+    type: "sop",
+    location: "",
+    discipline: "",
+    reviewerId: "",
+    approverId: "",
   }
-}
-
-/**
- * Treat the body as "still the starter template" if it matches one of the
- * built-in skeletons or is the empty doc. We use this to swap templates on
- * type-change without clobbering real edits — once the user has typed
- * anything substantive, we leave the body alone.
- */
-function isUntouchedTemplateBody(body: unknown): boolean {
-  if (body === EMPTY_DOC) return true
-  try {
-    const json = JSON.stringify(body)
-    if (json === JSON.stringify(EMPTY_DOC)) return true
-    for (const t of ["sop", "manual", "work_instruction", "lmra"] as DocumentType[]) {
-      if (json === JSON.stringify(templateForType(t))) return true
-    }
-  } catch {
-    // Non-serialisable bodies are treated as "touched" for safety.
-  }
-  return false
-}
-
-function useQueryParam(key: string): string | null {
-  const [value, setValue] = useState<string | null>(() =>
-    new URL(window.location.href).searchParams.get(key),
-  )
-  useEffect(() => {
-    function update() {
-      setValue(new URL(window.location.href).searchParams.get(key))
-    }
-    window.addEventListener("popstate", update)
-    return () => window.removeEventListener("popstate", update)
-  }, [key])
-  return value
 }
 
 export function DocumentNewPage() {
   const [pathname, setLocation] = useLocation()
-  const queryKind = useQueryParam("kind")
-  // Path-based kind. Legacy ?kind=pdf still works for backward compat with
-  // any bookmarks; new flow uses /docs/new/compose vs /docs/new/import.
-  const kind: "pdf" | "tiptap" =
-    pathname.endsWith("/import") || queryKind === "pdf" ? "pdf" : "tiptap"
+  const search =
+    typeof window !== "undefined" ? window.location.search : ""
+  const params = new URLSearchParams(search)
+  const templateId = params.get("template")
+  const kind: "pdf" | "tiptap" = pathname.endsWith("/import") ? "pdf" : "tiptap"
+
   const create = useMutation(api.documents.create)
-  const attachPdf = useMutation(api.documents.attachPdf)
   const generateUploadUrl = useMutation(api.files.generateUploadUrl)
+  const template = useQuery(
+    api.templates.get,
+    templateId ? { id: templateId as Id<"templates"> } : "skip",
+  )
+  const assetsRaw = useQuery(api.assets.list)
+  const docsRaw = useQuery(api.documents.list, {})
 
   const [meta, setMeta] = useState<MetadataValue>(() => defaultMetadata())
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [body, setBody] = useState<unknown>(() =>
-    kind === "tiptap" ? templateForType("sop") : EMPTY_DOC,
-  )
+  const [body, setBody] = useState<unknown>(() => EMPTY_DOC)
+  const [templateApplied, setTemplateApplied] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [pdfPreview, setPdfPreview] = useState<{
@@ -113,13 +87,35 @@ export function DocumentNewPage() {
   } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Seed the body + type from the chosen template, once.
   useEffect(() => {
-    if (kind !== "tiptap") return
-    if (!isUntouchedTemplateBody(body)) return
-    const next = templateForType(meta.type)
-    if (next) setBody(next)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meta.type, kind])
+    if (kind !== "tiptap" || templateApplied || !templateId || !template) return
+    setBody(template.bodyJson)
+    setMeta((m) => ({ ...m, type: template.type as DocumentType }))
+    setTemplateApplied(true)
+  }, [kind, templateApplied, templateId, template])
+
+  const derivedAssets = useMemo(() => {
+    const ids = walkBodyAssetIds(body)
+    const byId = new Map((assetsRaw ?? []).map((a) => [a._id as string, a]))
+    return ids
+      .map((id) => byId.get(id))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a))
+      .map((a) => ({ id: a._id as string, code: a.code, name: a.name }))
+  }, [body, assetsRaw])
+
+  const derivedRefs = useMemo(() => {
+    const refs = walkBodyRefs(body)
+    const byId = new Map((docsRaw ?? []).map((d) => [d._id as string, d]))
+    return refs.map((r) => {
+      const d = byId.get(r.docId)
+      return {
+        id: r.docId,
+        code: d?.namingCode ?? r.code,
+        title: d?.title ?? "(missing document)",
+      }
+    })
+  }, [body, docsRaw])
 
   async function handlePdfFile(file: File) {
     setPdfFile(file)
@@ -129,8 +125,7 @@ export function DocumentNewPage() {
       const pdf = await pdfjs.getDocument({ data: bytes.slice() }).promise
       setPdfPreview({ pages: pdf.numPages, bytes })
       if (!meta.title) {
-        const base = file.name.replace(/\.pdf$/i, "")
-        setMeta((m) => ({ ...m, title: base }))
+        setMeta((m) => ({ ...m, title: file.name.replace(/\.pdf$/i, "") }))
       }
     } catch (err) {
       console.error("PDF parse failed", err)
@@ -146,10 +141,11 @@ export function DocumentNewPage() {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
       const content = await page.getTextContent()
-      const text = content.items
-        .map((it) => ("str" in it ? (it as { str: string }).str : ""))
-        .join(" ")
-      pages.push(text)
+      pages.push(
+        content.items
+          .map((it) => ("str" in it ? (it as { str: string }).str : ""))
+          .join(" "),
+      )
     }
     return pages
   }
@@ -171,45 +167,61 @@ export function DocumentNewPage() {
       if (kind === "pdf") {
         if (!pdfPreview || !pdfFile) throw new Error("PDF missing")
         const uploadUrl = await generateUploadUrl()
-        const pdfBytesCopy = pdfPreview.bytes.slice()
         const uploadRes = await fetch(uploadUrl, {
           method: "POST",
-          headers: {
-            "Content-Type": pdfFile.type || "application/pdf",
-          },
-          body: pdfBytesCopy,
+          headers: { "Content-Type": pdfFile.type || "application/pdf" },
+          body: pdfPreview.bytes.slice(),
         })
         if (!uploadRes.ok) {
-          throw new Error(
-            `Upload failed: ${uploadRes.status} ${uploadRes.statusText}`,
-          )
+          throw new Error(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`)
         }
         const { storageId } = (await uploadRes.json()) as {
           storageId: Id<"_storage">
         }
         const pages = await extractPdfText(pdfPreview.bytes)
         const raw = chunksFromPdfPages(pages)
-        const docId = await attachPdf({
-          namingCode: meta.namingCode,
+        // Embed the PDF as an attachment node inside an editable document.
+        const pdfBody = {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: `Imported from ${pdfFile.name}.` }],
+            },
+            {
+              type: "pdfAttachment",
+              attrs: {
+                storageId,
+                filename: pdfFile.name,
+                pageCount: pdfPreview.pages,
+              },
+            },
+          ],
+        }
+        const docId = await create({
+          location: meta.location,
+          discipline: meta.discipline,
           title: meta.title.trim(),
           type: meta.type,
-          tags: meta.tags,
-          assetIds: meta.assetIds as Id<"assets">[],
-          storageId,
+          reviewerId: (meta.reviewerId || null) as Id<"users"> | null,
+          approverId: (meta.approverId || null) as Id<"users"> | null,
+          body: pdfBody,
           chunks: raw.map((r) => ({ text: r.text, section: r.section })),
+          pdfStorageId: storageId,
         })
         toast.success(`Imported ${pdfFile.name}`)
-        setLocation(`/docs/${docId}`)
+        setLocation(`/docs/${docId}/edit`)
         return
       }
 
       const raw = chunksFromTipTap(body)
       const docId = await create({
-        namingCode: meta.namingCode,
+        location: meta.location,
+        discipline: meta.discipline,
         title: meta.title.trim(),
         type: meta.type,
-        tags: meta.tags,
-        assetIds: meta.assetIds as Id<"assets">[],
+        reviewerId: (meta.reviewerId || null) as Id<"users"> | null,
+        approverId: (meta.approverId || null) as Id<"users"> | null,
         body,
         chunks: raw.map((r) => ({ text: r.text, section: r.section })),
       })
@@ -217,8 +229,7 @@ export function DocumentNewPage() {
       setLocation(`/docs/${docId}/edit`)
     } catch (err) {
       console.error(err)
-      const message = err instanceof Error ? err.message : "Save failed"
-      toast.error(message)
+      toast.error(err instanceof Error ? err.message : "Save failed")
     } finally {
       setSubmitting(false)
     }
@@ -237,12 +248,16 @@ export function DocumentNewPage() {
         title={`New ${kind === "pdf" ? "PDF import" : "document"}`}
         subtitle={
           kind === "pdf"
-            ? "Drop a PDF, set metadata, and publish v1"
-            : "Compose the body, set metadata, and publish v1"
+            ? "Drop a PDF, set metadata, and create. The PDF embeds as an attachment you can author around."
+            : "Compose the body, set metadata, and create."
         }
         actions={
           <Button onClick={submit} disabled={submitting} size="sm">
-            {submitting ? "Saving…" : kind === "pdf" ? "Import PDF" : "Create document"}
+            {submitting
+              ? "Saving…"
+              : kind === "pdf"
+                ? "Import PDF"
+                : "Create document"}
           </Button>
         }
       />
@@ -252,13 +267,13 @@ export function DocumentNewPage() {
           {kind === "pdf" ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-base">
                   <FileText className="h-4 w-4 text-primary" />
                   Source PDF
                 </CardTitle>
                 <CardDescription>
-                  Parsed locally for chunks, then uploaded to Convex storage on
-                  publish.
+                  Parsed locally for chunks, uploaded to Convex storage, and
+                  embedded as an attachment in the new document.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -284,8 +299,7 @@ export function DocumentNewPage() {
                       onClick={() => {
                         setPdfFile(null)
                         setPdfPreview(null)
-                        if (fileInputRef.current)
-                          fileInputRef.current.value = ""
+                        if (fileInputRef.current) fileInputRef.current.value = ""
                       }}
                     >
                       <X className="h-4 w-4" />
@@ -330,7 +344,7 @@ export function DocumentNewPage() {
                 <DocumentEditor
                   content={body}
                   onChange={(json) => setBody(json)}
-                  placeholder="Write the first paragraph…"
+                  placeholder="Write the first paragraph… type / for blocks"
                   toolbarTopOffset={104}
                 />
               </CardContent>
@@ -339,7 +353,13 @@ export function DocumentNewPage() {
         </div>
 
         <div className="lg:sticky lg:top-6 lg:self-start">
-          <MetadataPanel value={meta} onChange={setMeta} errors={errors} />
+          <MetadataPanel
+            value={meta}
+            onChange={setMeta}
+            errors={errors}
+            derivedAssets={derivedAssets}
+            derivedRefs={derivedRefs}
+          />
         </div>
       </div>
     </div>

@@ -262,41 +262,10 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
     stats.imagesDetected += pageImageDetected
     stats.imagesExtracted += pageImageExtracted
 
-    // Per-page render fallback: if the page had image-paint ops but we
-    // couldn't extract a single one, render the whole page as a PNG so the
-    // user at least gets the visual content.
-    if (
-      pageImageDetected > 0 &&
-      pageImageExtracted === 0 &&
-      images.length < MAX_IMAGES
-    ) {
-      try {
-        const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob((b) => resolve(b), "image/png"),
-        )
-        if (blob && blob.size >= MIN_BLOB_BYTES) {
-          const sha = await sha256Hex(await blob.arrayBuffer())
-          if (!seenSha.has(sha)) {
-            seenSha.add(sha)
-            const baseName = file.name.replace(/\.[^.]+$/, "")
-            images.push({
-              blob,
-              width: canvas.width,
-              height: canvas.height,
-              pageNumber,
-              sha256: sha,
-              hintAlt: `Page ${pageNumber} of ${baseName} — full-page fallback (op-list extraction returned nothing)`,
-              filename: `${baseName}-p${pageNumber}-fallback.png`,
-              contentType: "image/png",
-            })
-            stats.pageFallbackImages += 1
-            stats.pngImages += 1
-          }
-        }
-      } catch {
-        // best-effort
-      }
-    }
+    // NOTE: there is intentionally no full-page raster fallback here. A scan
+    // (no text layer) used to fall through to "render every page as a PNG",
+    // which produced a useless document of page screenshots. Scans are now
+    // detected by classification below and routed to attach-as-PDF instead.
 
     pageLayouts.push({
       pageNumber,
@@ -314,9 +283,19 @@ export async function extractPdf(file: File): Promise<ExtractResult> {
     .map((p) => `<!-- page ${p.pageNumber} -->\n\n${p.text}`)
     .join("\n\n---\n\n")
 
+  // Classification: a usable text layer needs both enough characters AND a
+  // healthy ratio of real letters. A digital PDF with a broken ToUnicode map
+  // can emit plenty of characters that are mostly garbage (CID glyph codes,
+  // box-drawing noise) — that must be treated like a scan, not extracted.
+  const sampleText = pages.map((p) => p.text).join("\n")
+  const nonSpace = sampleText.replace(/\s/g, "").length
+  const alpha = (sampleText.match(/[A-Za-zÀ-ɏ]/g) ?? []).length
+  const alphaRatio = nonSpace > 0 ? alpha / nonSpace : 0
   const avgChars = pdf.numPages > 0 ? totalChars / pdf.numPages : 0
-  const kind: ImporterClassification["kind"] =
-    avgChars < 80 ? "scannedPdf" : "digitalPdf"
+  const hasUsableText = avgChars >= 80 && alphaRatio >= 0.5
+  const kind: ImporterClassification["kind"] = hasUsableText
+    ? "digitalPdf"
+    : "scannedPdf"
 
   return {
     classification: {

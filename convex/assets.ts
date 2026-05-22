@@ -178,6 +178,59 @@ export const listAssetLogs = query({
   },
 })
 
+const DEFAULT_SITE = "HOL"
+
+export const create = mutation({
+  args: {
+    code: v.string(),
+    name: v.string(),
+    description: v.optional(v.union(v.string(), v.null())),
+    imageStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+  },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const code = args.code.trim()
+    const name = args.name.trim()
+    if (!code) throw new Error("Asset ID is required")
+    if (!name) throw new Error("Asset name is required")
+    const dupe = await ctx.db
+      .query("assets")
+      .withIndex("by_code", (q) => q.eq("code", code))
+      .unique()
+    if (dupe) throw new Error(`Asset code ${code} is already in use.`)
+
+    return await ctx.db.insert("assets", {
+      code,
+      name,
+      site: DEFAULT_SITE,
+      location: null,
+      qrToken: `qr-${code.toLowerCase()}`,
+      description: args.description ?? null,
+      level: 1,
+      floorplan: null,
+      isLinked: false,
+      linkedLogCode: null,
+      linkedLogName: null,
+      linkedLogDescription: null,
+      pinNumber: null,
+      pinX: null,
+      pinY: null,
+      imageStorageId: args.imageStorageId ?? null,
+    })
+  },
+})
+
+// Resolve a signed URL for an asset's photo. Returns null when there is none.
+export const imageUrlFor = query({
+  args: { id: v.id("assets") },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    const asset = await ctx.db.get(args.id)
+    if (!asset || !asset.imageStorageId) return null
+    return await ctx.storage.getUrl(asset.imageStorageId)
+  },
+})
+
 export const update = mutation({
   args: {
     id: v.id("assets"),

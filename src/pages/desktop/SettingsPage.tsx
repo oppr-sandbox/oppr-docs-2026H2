@@ -7,57 +7,28 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { useTheme } from "next-themes"
-import { useAction, useMutation, useQuery } from "convex/react"
+import { useAction, useQuery } from "convex/react"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { api } from "../../../convex/_generated/api"
+import {
+  CHAT_MODEL,
+  EMBEDDING_DIM,
+  EMBEDDING_MODEL,
+} from "../../../convex/ai/constants"
 import { toast } from "sonner"
-import { buildSeedPayload } from "@/admin/buildSeedPayload"
-import { Loader2, Settings as SettingsIcon } from "lucide-react"
+import { Link } from "wouter"
+import { Hash, Loader2, Settings as SettingsIcon } from "lucide-react"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 
-const EMBEDDING_MODEL = "gemini-embedding-2"
-const EMBEDDING_DIM = 768
-const CHAT_MODEL = "gemini-3.1-flash-lite-preview"
-
 export function SettingsPage() {
-  const { theme, setTheme } = useTheme()
   const { signOut } = useAuthActions()
 
-  const seedStatus = useQuery(api.seed.status)
-  const runSeed = useMutation(api.seed.seedDemoData)
+  const embedStatus = useQuery(api.ai.embed.embedStatus)
   const embedMissingAction = useAction(api.ai.embed.embedMissing)
   const reembedAllAction = useAction(api.ai.embed.reembedAll)
 
-  const [seeding, setSeeding] = useState(false)
   const [embedding, setEmbedding] = useState(false)
-
-  async function handleSeed() {
-    setSeeding(true)
-    const toastId = toast.loading("Pushing seed payload…")
-    try {
-      const payload = buildSeedPayload()
-      const result = await runSeed({ payload })
-      if (result.skipped) {
-        toast.success(
-          `Already at seed version ${result.currentVersion} — nothing to do.`,
-          { id: toastId },
-        )
-      } else {
-        toast.success(
-          `Seeded ${result.counts.documents} docs, ${result.counts.assets} assets.`,
-          { id: toastId },
-        )
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), {
-        id: toastId,
-      })
-    } finally {
-      setSeeding(false)
-    }
-  }
 
   async function handleEmbed(reembed: boolean) {
     setEmbedding(true)
@@ -76,10 +47,9 @@ export function SettingsPage() {
       } else if (result.total === 0) {
         toast.success("All chunks already embedded.", { id: toastId })
       } else {
-        toast.success(
-          `Embedded ${result.embedded}/${result.total} chunks`,
-          { id: toastId },
-        )
+        toast.success(`Embedded ${result.embedded}/${result.total} chunks`, {
+          id: toastId,
+        })
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err), {
@@ -90,161 +60,157 @@ export function SettingsPage() {
     }
   }
 
+  const outstanding = embedStatus?.outstanding ?? 0
+
   return (
     <div className="flex flex-col">
       <TopBar breadcrumb={[{ label: "Settings" }]} />
       <PageHeader
         icon={SettingsIcon}
         title="Settings"
-        subtitle="Theme, demo data, and AI controls."
+        subtitle="Naming, AI retrieval, and account."
       />
       <div className="space-y-4 p-6">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Configuration</CardTitle>
+            <CardDescription className="text-xs">
+              Manage the building blocks new documents draw from.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Link href="/settings/naming">
+              <Button size="sm" variant="outline" className="gap-1.5">
+                <Hash className="h-3.5 w-3.5" />
+                Naming acronyms
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Theme</CardTitle>
-        </CardHeader>
-        <CardContent className="flex gap-2">
-          <Button
-            variant={theme === "light" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTheme("light")}
-          >
-            Light
-          </Button>
-          <Button
-            variant={theme === "dark" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTheme("dark")}
-          >
-            Dark
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">AI</CardTitle>
-          <CardDescription className="text-xs">
-            Server-side via Convex actions. Embeddings auto-run on document
-            publish.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1 rounded-md bg-muted/40 p-3 font-mono text-[11px]">
-            <Row label="Embedding model" value={`${EMBEDDING_MODEL} · ${EMBEDDING_DIM}d`} />
-            <Row label="Chat model" value={CHAT_MODEL} />
-            <Row
-              label="Indexed chunks"
-              value={
-                seedStatus === undefined
-                  ? "…"
-                  : seedStatus.hasDocs
-                    ? "see Convex AI dashboard"
-                    : "none"
-              }
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void handleEmbed(false)}
-              disabled={embedding}
-            >
-              {embedding ? (
-                <>
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  Working…
-                </>
-              ) : (
-                "Embed missing chunks"
-              )}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                if (
-                  !confirm(
-                    "Clear every chunk embedding and re-embed from scratch? Takes ~30 seconds.",
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">AI retrieval (Ask IDA)</CardTitle>
+            <CardDescription className="text-xs">
+              Ask IDA answers operator questions by retrieving the most relevant
+              passages from your published documents. On publish, each document
+              is split into text chunks and converted into embedding vectors; a
+              question is matched against those vectors to find supporting
+              passages. Keep coverage complete so answers stay grounded — every
+              chunk should be indexed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1 rounded-md bg-muted/40 p-3 font-mono text-[11px]">
+              <Row
+                label="Embedding model"
+                value={`${EMBEDDING_MODEL} · ${EMBEDDING_DIM}d`}
+              />
+              <Row label="Chat model" value={CHAT_MODEL} />
+              <Row
+                label="Last embedding"
+                value={
+                  embedStatus === undefined
+                    ? "…"
+                    : embedStatus.lastEmbeddedAt
+                      ? formatWhen(embedStatus.lastEmbeddedAt)
+                      : "never"
+                }
+              />
+              <Row
+                label="Indexed chunks"
+                value={
+                  embedStatus === undefined
+                    ? "…"
+                    : `${embedStatus.embedded} / ${embedStatus.total}`
+                }
+              />
+              <Row
+                label="Outstanding"
+                value={
+                  embedStatus === undefined
+                    ? "…"
+                    : outstanding === 0
+                      ? "0 — all indexed"
+                      : `${outstanding} to embed`
+                }
+                highlight={outstanding > 0}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleEmbed(false)}
+                disabled={embedding || outstanding === 0}
+              >
+                {embedding ? (
+                  <>
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    Working…
+                  </>
+                ) : (
+                  "Embed missing chunks"
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (
+                    !confirm(
+                      "Clear every chunk embedding and re-embed from scratch? Takes ~30 seconds.",
+                    )
                   )
-                )
-                  return
-                void handleEmbed(true)
-              }}
-              disabled={embedding}
-            >
-              Re-embed all
+                    return
+                  void handleEmbed(true)
+                }}
+                disabled={embedding}
+              >
+                Re-embed all
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Account</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Button size="sm" variant="outline" onClick={() => signOut()}>
+              Sign out
             </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Demo data</CardTitle>
-          <CardDescription className="text-xs">
-            Seed the Convex backend with the showcase library. Idempotent on
-            seed version.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1 rounded-md bg-muted/40 p-3 font-mono text-[11px]">
-            <Row
-              label="Seed version"
-              value={
-                seedStatus === undefined
-                  ? "…"
-                  : seedStatus.seedVersion === null
-                    ? "not seeded"
-                    : String(seedStatus.seedVersion)
-              }
-            />
-            <Row
-              label="Documents"
-              value={
-                seedStatus === undefined
-                  ? "…"
-                  : seedStatus.hasDocs
-                    ? "yes"
-                    : "no"
-              }
-            />
-          </div>
-          <Button size="sm" onClick={() => void handleSeed()} disabled={seeding}>
-            {seeding ? (
-              <>
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                Seeding…
-              </>
-            ) : (
-              "Seed demo data"
-            )}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Account</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button size="sm" variant="outline" onClick={() => signOut()}>
-            Sign out
-          </Button>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function formatWhen(ts: number): string {
+  try {
+    return new Date(ts).toLocaleString()
+  } catch {
+    return String(ts)
+  }
+}
+
+function Row({
+  label,
+  value,
+  highlight,
+}: {
+  label: string
+  value: string
+  highlight?: boolean
+}) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span>{value}</span>
+      <span className={highlight ? "font-semibold text-amber-600" : undefined}>
+        {value}
+      </span>
     </div>
   )
 }

@@ -14,6 +14,8 @@ import { NodeViewWrapper, ReactNodeViewRenderer, NodeViewContent, type NodeViewP
 import {
   AlertTriangle,
   AlertOctagon,
+  Check,
+  CornerDownLeft,
   Flame,
   Info,
   Lightbulb,
@@ -21,11 +23,21 @@ import {
   Mountain,
   PlugZap,
   Pyramid,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
   Snowflake,
   Tag,
+  Trash2,
 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
 export type CalloutKind =
@@ -78,18 +90,56 @@ export const CALLOUT_META: Record<CalloutKind, CalloutMeta> = {
   cryo: { label: "Cryogenic / cold hazard", icon: Snowflake, tone: "notice" },
 }
 
-function CalloutView({ node }: NodeViewProps) {
+// Order of kinds shown in the change-type menu.
+const KIND_ORDER: CalloutKind[] = [
+  "warning",
+  "caution",
+  "notice",
+  "tip",
+  "danger",
+  "loto",
+  "hotwork",
+  "electrical",
+  "heights",
+  "confined",
+  "authorised",
+  "permit",
+  "cryo",
+]
+
+function CalloutView({
+  node,
+  updateAttributes,
+  deleteNode,
+  editor,
+  getPos,
+  selected,
+}: NodeViewProps) {
   const kind = (node.attrs.kind as CalloutKind) ?? "notice"
   const meta = CALLOUT_META[kind] ?? CALLOUT_META.notice
   const Icon = meta.icon
+  const editable = editor?.isEditable ?? false
+
+  function addLineBelow() {
+    if (typeof getPos !== "function") return
+    const pos = getPos() + node.nodeSize
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(pos, { type: "paragraph" })
+      .setTextSelection(pos + 1)
+      .run()
+  }
+
   return (
     <NodeViewWrapper
       as="div"
       data-callout
       data-kind={kind}
       className={cn(
-        "my-3 flex gap-3 rounded-md border-l-4 px-4 py-3 text-sm leading-relaxed",
+        "group relative my-3 flex gap-3 rounded-md border-l-4 px-4 py-3 text-sm leading-relaxed",
         TONE_CLS[meta.tone],
+        selected && "ring-2 ring-offset-1 ring-current",
       )}
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
@@ -99,6 +149,65 @@ function CalloutView({ node }: NodeViewProps) {
         </div>
         <NodeViewContent className="callout-body" />
       </div>
+
+      {editable && (
+        <div
+          contentEditable={false}
+          className={cn(
+            "absolute right-1 top-1 flex items-center gap-0.5 rounded-md border bg-background/95 p-0.5 text-foreground shadow-sm backdrop-blur transition-opacity",
+            selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+          )}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title="Change type"
+                className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] hover:bg-muted"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-72 overflow-auto">
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Change type
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {KIND_ORDER.map((k) => {
+                const m = CALLOUT_META[k]
+                const KIcon = m.icon
+                return (
+                  <DropdownMenuItem
+                    key={k}
+                    onClick={() => updateAttributes({ kind: k })}
+                    className="gap-2 text-xs"
+                  >
+                    <KIcon className="h-3.5 w-3.5" />
+                    <span className="flex-1">{m.label}</span>
+                    {k === kind && <Check className="h-3.5 w-3.5 text-primary" />}
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button
+            type="button"
+            title="Add line below"
+            onClick={addLineBelow}
+            className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-muted"
+          >
+            <CornerDownLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            title="Remove callout"
+            onClick={() => deleteNode()}
+            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </NodeViewWrapper>
   )
 }

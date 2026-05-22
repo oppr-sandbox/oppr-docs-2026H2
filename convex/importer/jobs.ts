@@ -13,6 +13,7 @@ import {
 } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { requireUser, requireUserId } from "../lib/auth"
+import { walkBodyAssetIds } from "../lib/assetWalker"
 
 const targetTemplateValidator = v.union(
   v.literal("sop"),
@@ -445,21 +446,22 @@ export const finalizeDocument = mutation({
     const job = await ctx.db.get(args.jobId)
     if (!job) throw new Error("Job not found")
 
-    // Reuse the existing naming-code uniqueness rule by inlining the check.
-    const existing = await ctx.db
-      .query("documents")
-      .withIndex("by_namingCode", (q) => q.eq("namingCode", args.namingCode))
-      .unique()
-    if (existing) throw new Error(`Naming code ${args.namingCode} is already in use.`)
-
+    // Imports land as PRE-DRAFT: no naming code is claimed (empty string), so
+    // the per-triplet counter is never burned on an import that might be
+    // discarded. The code is allocated when the user opens it, sets location +
+    // discipline, and saves (promoting it to draft). We also do NOT auto-link
+    // assets — suggested links are surfaced for the user to apply by hand.
     const now = Date.now()
     const docId = await ctx.db.insert("documents", {
-      namingCode: args.namingCode,
+      namingCode: "",
+      location: null,
+      discipline: null,
       title: args.title.trim(),
       type: args.type,
-      status: "draft",
+      status: "pre_draft",
       currentVersion: 1,
       ownerId: userId,
+      authorId: userId,
       tags: ["imported"],
       updatedAt: now,
     })
@@ -485,11 +487,11 @@ export const finalizeDocument = mutation({
       })
     }
 
-    for (const aid of args.assetIds) {
-      await ctx.db.insert("documentAssets", {
-        documentId: docId,
-        assetId: aid,
-      })
+    // Link only what the body actually references (none, for a fresh import) —
+    // never the AI's suggested asset list.
+    for (const raw of walkBodyAssetIds(args.body)) {
+      const typed = ctx.db.normalizeId("assets", raw)
+      if (typed) await ctx.db.insert("documentAssets", { documentId: docId, assetId: typed })
     }
 
     await ctx.runMutation(internal.images.recomputeUsagesForVersion, {

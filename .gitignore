@@ -11,3 +11,6 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 *.log
+
+# Working scratch screenshots (not part of the product)
+screenshots/

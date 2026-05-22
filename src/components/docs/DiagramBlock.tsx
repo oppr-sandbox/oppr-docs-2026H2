@@ -1,12 +1,17 @@
 // DiagramBlock — inline SVG figure node.
 //
-// We accept a raw SVG string in `data-svg`. Rendering uses
-// dangerouslySetInnerHTML, so the picker offers curated presets only — we do
-// NOT accept arbitrary user-pasted SVG in the picker (script-stripping would
-// be required for that, and it's overkill for the showcase). The seed and
-// new-doc templates produce all current SVGs.
+// Diagrams are authored in the model-first builder (see /analysis/diagram-builder).
+// A structured DiagramModel is the source of truth, stored in data-model; its
+// rendered SVG is cached in data-svg so the read view and PDF export consume it
+// unchanged. Builder-made diagrams reopen for editing (the Edit button on hover).
+//
+// v3: the static "Presets" insert path is gone — curated starting points now
+// load INTO the builder as editable templates. Legacy diagrams stored as svg
+// only (no model) still render via data-svg; they're just not re-editable.
+// All builder SVG is produced by renderDiagramSvg, the single trust boundary
+// that XML-escapes every label.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Node, mergeAttributes, type RawCommands } from "@tiptap/core"
 import {
   NodeViewWrapper,
@@ -23,28 +28,107 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { CornerDownLeft, Pencil } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { DIAGRAM_PRESETS, type DiagramPresetKey } from "./diagramPresets"
+import { useMutation, useQuery } from "convex/react"
+import { api } from "../../../convex/_generated/api"
+import type { Id } from "../../../convex/_generated/dataModel"
+import { toast } from "sonner"
+import { DiagramBuilder, type AssetOption } from "./DiagramBuilder"
+import {
+  emptyDiagramModel,
+  parseDiagramModel,
+  type DiagramModel,
+  type UploadedBackground,
+} from "./diagramModel"
+import { renderDiagramSvg } from "./renderDiagramSvg"
 
-function DiagramView({ node }: NodeViewProps) {
+export interface DiagramAttrs {
+  svg: string
+  caption: string
+  model?: DiagramModel | null
+}
+
+function DiagramView({
+  node,
+  editor,
+  updateAttributes,
+  getPos,
+  selected,
+}: NodeViewProps) {
   const svg = (node.attrs.svg as string) ?? ""
   const caption = (node.attrs.caption as string) ?? ""
+  const model = parseDiagramModel(node.attrs.model)
+  const [editOpen, setEditOpen] = useState(false)
+  const canEdit = editor.isEditable && model !== null
+  const editable = editor.isEditable
+
+  function addLineBelow() {
+    if (typeof getPos !== "function") return
+    const pos = getPos() + node.nodeSize
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(pos, { type: "paragraph" })
+      .setTextSelection(pos + 1)
+      .run()
+  }
+
   return (
     <NodeViewWrapper
       as="figure"
       data-diagram
-      className="my-4 flex flex-col items-center gap-1.5 rounded-md border bg-card p-4"
+      className="group relative my-4 flex flex-col items-center gap-1.5 rounded-md border bg-card p-4"
     >
+      {editable && (
+        <div
+          contentEditable={false}
+          className={cn(
+            "absolute right-2 top-2 z-10 flex items-center gap-1 transition-opacity",
+            selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+          )}
+        >
+          {canEdit && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setEditOpen(true)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            title="Add line below"
+            onClick={addLineBelow}
+          >
+            <CornerDownLeft className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
       <div
         className="diagram-svg w-full max-w-2xl text-foreground"
-        // SVG comes from controlled presets; we don't accept free-form input.
-        // eslint-disable-next-line react/no-danger
+        // SVG comes from our own renderDiagramSvg (or a legacy preset); we never
+        // accept free-form input — see renderDiagramSvg, the single trust boundary.
         dangerouslySetInnerHTML={{ __html: svg }}
       />
       {caption && (
-        <figcaption className="text-xs text-muted-foreground">
-          {caption}
-        </figcaption>
+        <figcaption className="text-xs text-muted-foreground">{caption}</figcaption>
+      )}
+      {canEdit && (
+        <DiagramPicker
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          initialModel={model}
+          initialCaption={caption}
+          onSelect={(attrs) => updateAttributes(attrs)}
+        />
       )}
     </NodeViewWrapper>
   )
@@ -53,7 +137,7 @@ function DiagramView({ node }: NodeViewProps) {
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     diagram: {
-      insertDiagram: (attrs: { svg: string; caption: string }) => ReturnType
+      insertDiagram: (attrs: DiagramAttrs) => ReturnType
     }
   }
 }
@@ -77,6 +161,14 @@ export const DiagramNode = Node.create({
         parseHTML: (el) => el.getAttribute("data-caption") ?? "",
         renderHTML: (attrs) => ({ "data-caption": attrs.caption }),
       },
+      // The structured model for builder-made diagrams. Legacy presets have no
+      // model and round-trip as svg only.
+      model: {
+        default: null,
+        parseHTML: (el) => parseDiagramModel(el.getAttribute("data-model")),
+        renderHTML: (attrs) =>
+          attrs.model ? { "data-model": JSON.stringify(attrs.model) } : {},
+      },
     }
   },
 
@@ -85,10 +177,7 @@ export const DiagramNode = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    return [
-      "figure",
-      mergeAttributes(HTMLAttributes, { "data-diagram": "" }),
-    ]
+    return ["figure", mergeAttributes(HTMLAttributes, { "data-diagram": "" })]
   },
 
   addNodeView() {
@@ -98,75 +187,154 @@ export const DiagramNode = Node.create({
   addCommands() {
     const commands: Partial<RawCommands> = {
       insertDiagram:
-        (attrs: { svg: string; caption: string }) =>
+        (attrs: DiagramAttrs) =>
         ({ chain }) => {
-          return chain()
-            .focus()
-            .insertContent({ type: this.name, attrs })
-            .run()
+          return chain().focus().insertContent({ type: this.name, attrs }).run()
         },
     }
     return commands as RawCommands
   },
 })
 
-// --- Picker dialog ----------------------------------------------------------
+// --- upload helpers ---------------------------------------------------------
+
+async function sha256Hex(buf: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", buf)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+}
+
+function probeDimensions(file: File): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight })
+      URL.revokeObjectURL(url)
+    }
+    img.onerror = () => {
+      resolve(null)
+      URL.revokeObjectURL(url)
+    }
+    img.src = url
+  })
+}
+
+// --- Builder dialog ---------------------------------------------------------
 
 interface DiagramPickerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSelect: (attrs: { svg: string; caption: string }) => void
+  onSelect: (attrs: DiagramAttrs) => void
+  /** When set, the dialog opens pre-loaded for editing. */
+  initialModel?: DiagramModel | null
+  initialCaption?: string
 }
 
 export function DiagramPicker({
   open,
   onOpenChange,
   onSelect,
+  initialModel,
+  initialCaption,
 }: DiagramPickerProps) {
-  const keys = Object.keys(DIAGRAM_PRESETS) as DiagramPresetKey[]
-  const [picked, setPicked] = useState<DiagramPresetKey>(keys[0])
+  const rawAssets = useQuery(api.assets.list, open ? {} : "skip")
+  const assetOptions: AssetOption[] = (rawAssets ?? []).map((a) => ({
+    code: a.code,
+    name: a.name,
+  }))
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl)
+  const createFromUpload = useMutation(api.images.createFromUpload)
+
+  const [model, setModel] = useState<DiagramModel>(emptyDiagramModel())
   const [caption, setCaption] = useState("")
 
-  function commit() {
-    const preset = DIAGRAM_PRESETS[picked]
-    onSelect({ svg: preset.svg, caption: caption || preset.defaultCaption })
-    onOpenChange(false)
-    setCaption("")
+  useEffect(() => {
+    if (!open) return
+    setModel(initialModel ?? emptyDiagramModel())
+    setCaption(initialCaption ?? "")
+  }, [open, initialModel, initialCaption])
+
+  async function uploadBackground(file: File): Promise<UploadedBackground | null> {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Not an image file.")
+      return null
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Image too large — 10 MB limit.")
+      return null
+    }
+    try {
+      const buf = await file.arrayBuffer()
+      const sha256 = await sha256Hex(buf)
+      const dims = await probeDimensions(file)
+      if (!dims) {
+        toast.error("Couldn't read image dimensions.")
+        return null
+      }
+      const uploadUrl = await generateUploadUrl()
+      const put = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      })
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`)
+      const { storageId } = (await put.json()) as { storageId: Id<"_storage"> }
+      const result = await createFromUpload({
+        storageId,
+        filename: file.name,
+        contentType: file.type,
+        byteSize: file.size,
+        width: dims.width,
+        height: dims.height,
+        sha256,
+        altText: "Diagram background",
+      })
+      if (!result.url) {
+        toast.error("Upload returned no URL.")
+        return null
+      }
+      return { url: result.url, naturalWidth: dims.width, naturalHeight: dims.height }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed")
+      return null
+    }
   }
+
+  function commit() {
+    onSelect({
+      svg: renderDiagramSvg(model),
+      caption: caption.trim() || "Diagram",
+      model,
+    })
+    onOpenChange(false)
+  }
+
+  const isEditing = !!initialModel
+  const isEmpty =
+    model.nodes.length === 0 && model.arrows.length === 0 && !model.background
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-4xl">
         <DialogHeader>
-          <DialogTitle>Insert diagram</DialogTitle>
+          <DialogTitle>{isEditing ? "Edit diagram" : "Diagram builder"}</DialogTitle>
           <DialogDescription>
-            Pick a preset diagram. Caption appears under the figure.
+            Drag in shapes, connect them, add arrows, or drop a background image
+            (e.g. a floor plan) and overlay boxes on top. Start from a template
+            to save time.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-2 py-2">
-          {keys.map((k) => {
-            const preset = DIAGRAM_PRESETS[k]
-            const on = picked === k
-            return (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setPicked(k)}
-                className={cn(
-                  "flex flex-col items-stretch gap-1 rounded-md border p-2 text-left transition-colors",
-                  on ? "border-primary bg-primary/10" : "border-input hover:bg-muted",
-                )}
-              >
-                <div
-                  className="h-32 w-full overflow-hidden rounded bg-background"
-                  // eslint-disable-next-line react/no-danger
-                  dangerouslySetInnerHTML={{ __html: preset.svg }}
-                />
-                <div className="text-xs font-medium">{preset.label}</div>
-              </button>
-            )
-          })}
-        </div>
+
+        <DiagramBuilder
+          model={model}
+          onChange={setModel}
+          caption={caption}
+          assetOptions={assetOptions}
+          onUploadBackground={uploadBackground}
+        />
+
         <div className="space-y-1">
           <label className="text-xs font-medium" htmlFor="diagram-caption">
             Caption
@@ -175,14 +343,17 @@ export function DiagramPicker({
             id="diagram-caption"
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
-            placeholder={DIAGRAM_PRESETS[picked].defaultCaption}
+            placeholder="Describe the diagram (shown below it)"
           />
         </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={commit}>Insert</Button>
+          <Button onClick={commit} disabled={isEmpty}>
+            {isEditing ? "Save diagram" : "Insert diagram"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

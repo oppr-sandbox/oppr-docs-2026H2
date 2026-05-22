@@ -17,7 +17,7 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react"
-import { Hash, MapPin } from "lucide-react"
+import { Factory, MapPin } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
@@ -46,7 +46,7 @@ function LinkedAssetNodeView({ node, selected }: NodeViewProps) {
         selected && "ring-2 ring-emerald-400 ring-offset-1",
       )}
     >
-      <Hash className="h-3 w-3" />
+      <Factory className="h-3 w-3" />
       <span className="font-mono">{label}</span>
     </NodeViewWrapper>
   )
@@ -93,7 +93,7 @@ export const LinkedAssetNode = Node.create({
     return [
       "span",
       mergeAttributes(HTMLAttributes, { "data-linked-asset": "" }),
-      `# ${HTMLAttributes["data-label"] ?? ""}`,
+      `${HTMLAttributes["data-label"] ?? ""}`,
     ]
   },
 
@@ -181,6 +181,7 @@ export function LinkedAssetPicker({
     [raw],
   )
   const [query, setQuery] = useState("")
+  const [labelMode, setLabelMode] = useState<"code" | "codeName">("code")
   const { recent, push } = useRecentlyLinkedAssets()
 
   const groups = useMemo(
@@ -191,7 +192,9 @@ export function LinkedAssetPicker({
 
   function pick(asset: Asset) {
     push(asset.id)
-    onSelect({ assetId: asset.id, label: asset.code })
+    const label =
+      labelMode === "codeName" ? `${asset.code} — ${asset.name}` : asset.code
+    onSelect({ assetId: asset.id, label })
     onOpenChange(false)
     setQuery("")
   }
@@ -200,12 +203,43 @@ export function LinkedAssetPicker({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Insert linked asset</DialogTitle>
+          <DialogTitle>Insert machine</DialogTitle>
           <DialogDescription>
-            Search the asset registry by code, name, or location.
+            Search the site assets by code, name, or location.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Insert as
+            </span>
+            <div className="inline-flex rounded-md border p-0.5">
+              <button
+                type="button"
+                onClick={() => setLabelMode("code")}
+                className={cn(
+                  "rounded px-2 py-1 text-xs transition-colors",
+                  labelMode === "code"
+                    ? "bg-emerald-500/15 font-medium text-emerald-700 dark:text-emerald-300"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Code only
+              </button>
+              <button
+                type="button"
+                onClick={() => setLabelMode("codeName")}
+                className={cn(
+                  "rounded px-2 py-1 text-xs transition-colors",
+                  labelMode === "codeName"
+                    ? "bg-emerald-500/15 font-medium text-emerald-700 dark:text-emerald-300"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Code + name
+              </button>
+            </div>
+          </div>
           <Input
             autoFocus
             placeholder="Search by code, name, or location…"
@@ -237,7 +271,7 @@ export function LinkedAssetPicker({
                             {asset.pin_number}
                           </span>
                         ) : (
-                          <Hash className="h-3.5 w-3.5 text-emerald-600" />
+                          <Factory className="h-3.5 w-3.5 text-emerald-600" />
                         )}
                         <span className="font-mono text-sm">{asset.code}</span>
                         <span className="flex-1 truncate text-muted-foreground">

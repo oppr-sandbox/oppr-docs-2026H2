@@ -18,7 +18,6 @@ import {
   Factory,
   Files,
   FolderKanban,
-  Map as MapIcon,
   MessageSquare,
   ScanLine,
   Search,
@@ -164,24 +163,6 @@ export function MobileHomePage() {
           sub={docCount != null ? `${docCount}` : "Browse"}
         />
       </div>
-
-      <Link
-        href="/m/floorplan"
-        className="flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 active:scale-[0.99]"
-      >
-        <div className="flex h-6 w-6 items-center justify-center rounded bg-muted">
-          <MapIcon className="h-3.5 w-3.5" />
-        </div>
-        <div className="flex-1">
-          <div className="text-[12px] font-semibold leading-none">
-            Floorplan
-          </div>
-          <div className="mt-0.5 text-[10px] text-muted-foreground">
-            Pin overview
-          </div>
-        </div>
-        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-      </Link>
 
       {staleCount > 0 && (
         <div className="flex items-center justify-between rounded-md border border-amber-300/50 bg-amber-100/40 px-2.5 py-2 text-[11px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">

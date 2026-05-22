@@ -6,6 +6,8 @@ interface PageHeaderProps {
   title: string
   subtitle?: ReactNode
   actions?: ReactNode
+  /** Optional id on the root, so callers can measure the sticky header height. */
+  id?: string
 }
 
 export function PageHeader({
@@ -13,9 +15,13 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  id,
 }: PageHeaderProps) {
   return (
-    <div className="sticky top-12 z-20 flex flex-wrap items-start justify-between gap-3 border-b bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div
+      id={id}
+      className="sticky top-12 z-20 flex flex-wrap items-start justify-between gap-3 border-b bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+    >
       <div className="flex min-w-0 items-center gap-3">
         {Icon && (
           <Icon className="h-5 w-5 shrink-0 text-primary" />

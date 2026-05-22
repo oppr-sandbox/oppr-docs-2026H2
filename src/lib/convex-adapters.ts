@@ -9,6 +9,7 @@ export function toLegacyDoc(d: ConvexDoc<"documents">): Doc {
     type: d.type,
     status: d.status,
     current_version: d.currentVersion,
+    live_version: d.liveVersion ?? null,
     owner_id: d.ownerId ?? "",
     tags: d.tags,
     created_at: new Date(d._creationTime).toISOString(),

@@ -16,6 +16,13 @@ import { ImporterPipelineDebugAnalysis } from "./ImporterPipelineDebugAnalysis"
 import { EddycurrentImporterWalkthroughAnalysis } from "./EddycurrentImporterWalkthroughAnalysis"
 import { EddycurrentImporterWalkthroughV2Analysis } from "./EddycurrentImporterWalkthroughV2Analysis"
 import { MobileRevampAnalysis } from "./MobileRevampAnalysis"
+import { ClaudeStackTemplateAnalysis } from "./ClaudeStackTemplateAnalysis"
+import { AuthoringCompletenessAnalysis } from "./AuthoringCompletenessAnalysis"
+import { PdfAndAuthoringPolishAnalysis } from "./PdfAndAuthoringPolishAnalysis"
+import { ImportRedesignAnalysis } from "./ImportRedesignAnalysis"
+import { DiagramBuilderAnalysis } from "./DiagramBuilderAnalysis"
+import { DiagramBuilderRebuildAnalysis } from "./DiagramBuilderRebuildAnalysis"
+import { DocumentVersioningAnalysis } from "./DocumentVersioningAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -38,6 +45,76 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "document-versioning",
+    title: "Document versioning & library lifecycle",
+    area: "Architecture",
+    status: "done",
+    updatedAt: "2026-05-22",
+    summary:
+      "A published SOP must stay live while the next edition is forked, authored, reviewed, and approved — replacing the live version only on a confirmed re-publish (becoming v2). Today saveContent flips the single document row to draft on first edit, taking v1 offline with no replace gate. Decision 1 (gates): Option A — add liveVersion alongside currentVersion on one row (vs Option B forked row). Serving rule: operators/QR/RAG read liveVersion; editor works on currentVersion. Plus a replace-confirmation AlertDialog on publish and a library 'v2 in progress' chip + expansion. Toast-position and breadcrumb-full-title fixes already shipped. 4 decisions, 1 gates.",
+    Component: DocumentVersioningAnalysis,
+  },
+  {
+    slug: "diagram-builder-rebuild",
+    title: "Diagram builder — ground-up rebuild",
+    area: "Editor",
+    status: "in_progress",
+    updatedAt: "2026-05-22",
+    summary:
+      "Rebuild spec after v1–v3 kept reintroducing the same canvas bug (working area drifts outside the frame, can't zoom out, added shapes off-screen, background blows up the workspace). Root cause named: the css-size+overflow canvas is the wrong model. Decision 1 (load-bearing): replace it with a fixed-pixel SVG viewport + a single <g transform='translate(panX,panY) scale(zoom)'> — pan by drag, zoom in AND out freely (fit is a button not a floor), clientToWorld = (clientX−svgLeft−panX)/zoom, add-shape lands at the viewport centre so it's always visible. Decision 2: background becomes a placeable/resizable/lockable element { url,x,y,w,h,locked } instead of the thing that sizes the canvas. Consolidation: 'Start from' → 'Import template' dropdown with Background image… as an entry; palette buttons become drag sources. Scope guard: no new capabilities beyond drag-and-drop + background-as-element; the v3 surface is the surface. Interdependency map shows the DiagramModel/data-svg/TipTap contract stays stable so the document side doesn't break. Includes an honest grilling of why transform-zoom was rejected twice. 4 open decisions; 1 & 2 gate the build.",
+    Component: DiagramBuilderRebuildAnalysis,
+  },
+  {
+    slug: "diagram-builder",
+    title: "Diagram builder — simple, model-first, SVG-native (v1–v3)",
+    area: "Editor",
+    status: "done",
+    updatedAt: "2026-05-22",
+    summary:
+      "Superseded by diagram-builder-rebuild (foundation rebuild). v1–v3 case file. Spec for the real diagram builder behind the placeholder we shipped in the picker. Leads with the load-bearing decision — store the structured model or store the SVG — and recommends model-first (Option B): a typed DiagramModel is the source of truth, a pure renderDiagramSvg() emits clean themed SVG cached into the existing data-svg attr so the read view + PDF export need no change. Build approach: hand-rolled SVG canvas (React Flow rejected — it renders DOM, fights the SVG export; mermaid kept as overrun escape hatch; AI-raw-SVG rejected for safety). The synthesis recommendation: AI drafts the model, the human refines it in the canvas. v1 scope cut: connectors are straight / simple-elbow with no obstacle avoidance (the hand-roll time-sink). Element set: process / decision / terminator / asset-linked box. Model-first also closes the dangerouslySetInnerHTML hole (renderer is the trust boundary, labels XML-escaped). Five open decisions; 1–2 gate everything.",
+    Component: DiagramBuilderAnalysis,
+  },
+  {
+    slug: "import-redesign",
+    title: "Import, new-document & lifecycle redesign",
+    area: "Strategy",
+    status: "in_progress",
+    updatedAt: "2026-05-21",
+    summary:
+      "Review of the import + creation flow: three PDF entry points across two inconsistent menus collapse to one; the import wizard drops its upfront target-template + verbatim/improve choices in favour of import-as-is → fit-to-our-template → optional AI improve; references are flagged not auto-linked. Introduces a pre_draft status (nullable namingCode, code allocated only on the draft transition so imports don't burn the per-triplet counter), a verbatim save-as-template (AI generalize deferred to v2), Google-Docs-style local-scratch autosave (no version spam), and capped batch import (5) that reuses the single pipeline. Three gating decisions: pre-draft + nullable code, save-as-template approach, autosave mechanism. Surfaces conflations the user fused (choose-template-upfront vs later is the same mechanism; autosave is two mechanisms).",
+    Component: ImportRedesignAnalysis,
+  },
+  {
+    slug: "pdf-and-authoring-polish",
+    title: "PDF export + authoring polish",
+    area: "Editor",
+    status: "done",
+    updatedAt: "2026-05-21",
+    summary:
+      "Review of six items from a real authoring session: the asset/machine chip + toolbar use a # glyph instead of a machine icon; the PDF export drops the embedded PDF, the linked-asset list, and the references table even with every toggle on (root cause: the export reads the persisted version, and the chips were unsaved — plus pdfAttachment has no PDF renderer); the publish dialog is a flat switch list (recurring header/footer should be always-on, the rest grouped); the metadata panel shows asset codes without names and has no reference-document list; and the insert-image dialog has no library picker. Includes root-cause table with confidence, cross-impacts the user didn't list (unsaved body text, separate PDF glyph path, no persisted reference link table), a grilling, proposed UX mocks, a Step-0-first plan, and four open decisions (machine vs asset wording, embedded-PDF approach, export source, always-on chrome).",
+    Component: PdfAndAuthoringPolishAnalysis,
+  },
+  {
+    slug: "authoring-completeness",
+    title: "Authoring completeness & document lifecycle",
+    area: "Architecture",
+    status: "done",
+    updatedAt: "2026-05-21",
+    summary:
+      "Seven workstreams to make the authoring spine complete and foolproof: fresh-start to one full reference document, a gated author/reviewer/approver lifecycle (new 'approved' state + role fields + per-version sign-off trail), a DB-backed template manager at /templates, a configurable naming system with a per-location+discipline+type atomic counter and a /settings/naming vocabulary page, a metadata cleanup that drops tags and manual asset linking in favour of location/discipline selectors and body-derived links, an asset pill with code-only vs code+name labels, and a corner-drag image resize that stops the controls running away from the cursor. Three product decisions locked with the user; three open. Schema-first six-phase plan.",
+    Component: AuthoringCompletenessAnalysis,
+  },
+  {
+    slug: "claude-stack-template",
+    title: "Claude stack template",
+    area: "Architecture",
+    status: "done",
+    updatedAt: "2026-05-08",
+    summary:
+      "Specification + build manifest for a reusable starter that captures every load-bearing decision from oppr-docs (Vite 7 + React 19 + TS + Tailwind + shadcn + Convex + Convex Auth magic link + wouter), the layout system (TopBar + PageHeader + Sidebar), the analysis-page skill, and out-of-box Dashboard / Example / Settings / Analysis pages. Lives at ../claude-stack-template/ as a sibling repo so it can be git-pushed independently.",
+    Component: ClaudeStackTemplateAnalysis,
+  },
   {
     slug: "mobile-revamp",
     title: "Mobile interface revamp",

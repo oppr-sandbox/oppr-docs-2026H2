@@ -12,6 +12,9 @@ import { DocumentEditPage } from "@/pages/desktop/DocumentEditPage"
 import { DocumentNewPage } from "@/pages/desktop/DocumentNewPage"
 import { DocumentNewChooserPage } from "@/pages/desktop/DocumentNewChooserPage"
 import { SettingsPage } from "@/pages/desktop/SettingsPage"
+import { NamingSettingsPage } from "@/pages/desktop/NamingSettingsPage"
+import { TemplatesPage } from "@/pages/desktop/TemplatesPage"
+import { TemplateEditPage } from "@/pages/desktop/TemplateEditPage"
 import { ImageLibraryPage } from "@/pages/desktop/ImageLibraryPage"
 import { ImportPage } from "@/pages/desktop/ImportPage"
 import { AnalysisIndexPage } from "@/pages/desktop/AnalysisIndexPage"
@@ -23,7 +26,6 @@ import { MobileAssetPage } from "@/pages/mobile/MobileAssetPage"
 import { MobileDocsPage } from "@/pages/mobile/MobileDocsPage"
 import { MobileDocPage } from "@/pages/mobile/MobileDocPage"
 import { MobileAskPage } from "@/pages/mobile/MobileAskPage"
-import { MobileFloorplanPage } from "@/pages/mobile/MobileFloorplanPage"
 import { AuthGate } from "@/auth/AuthGate"
 
 function AnalysisRoute() {
@@ -47,13 +49,12 @@ function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
       <AuthGate>
-        <Toaster richColors position="top-right" />
+        <Toaster richColors position="bottom-right" />
         {isMobile ? (
           <MobileShell>
             <Switch>
               <Route path="/m" component={MobileHomePage} />
               <Route path="/m/scan" component={MobileScanPage} />
-              <Route path="/m/floorplan" component={MobileFloorplanPage} />
               <Route path="/m/assets" component={MobileAssetsPage} />
               <Route path="/m/assets/:id" component={MobileAssetPage} />
               <Route path="/m/docs" component={MobileDocsPage} />
@@ -73,6 +74,10 @@ function App() {
               <Route path="/docs/new/import" component={DocumentNewPage} />
               <Route path="/docs/:id/edit" component={DocumentEditPage} />
               <Route path="/docs/:id" component={DocumentReadPage} />
+              <Route path="/templates" component={TemplatesPage} />
+              <Route path="/templates/new" component={TemplateEditPage} />
+              <Route path="/templates/:id/edit" component={TemplateEditPage} />
+              <Route path="/settings/naming" component={NamingSettingsPage} />
               <Route path="/settings" component={SettingsPage} />
               <Route path="/images" component={ImageLibraryPage} />
               <Route path="/import" component={ImportPage} />

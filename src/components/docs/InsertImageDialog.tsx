@@ -4,9 +4,15 @@
 // (external href → images table with source='url'). Both produce a
 // data-image-id that the editor inserts as an <img data-image-id> node.
 
-import { useRef, useState } from "react"
-import { Loader2, Upload, Link as LinkIcon, ImageOff } from "lucide-react"
-import { useMutation } from "convex/react"
+import { useMemo, useRef, useState } from "react"
+import {
+  Loader2,
+  Upload,
+  Link as LinkIcon,
+  ImageOff,
+  Images as ImagesIcon,
+} from "lucide-react"
+import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
@@ -49,17 +55,29 @@ export function InsertImageDialog({
             tracked in the image library.
           </DialogDescription>
         </DialogHeader>
-        <Tabs defaultValue="upload">
+        <Tabs defaultValue="library">
           <TabsList className="w-full">
+            <TabsTrigger value="library" className="flex-1 gap-1.5">
+              <ImagesIcon className="h-3.5 w-3.5" />
+              Library
+            </TabsTrigger>
             <TabsTrigger value="upload" className="flex-1 gap-1.5">
               <Upload className="h-3.5 w-3.5" />
               Upload
             </TabsTrigger>
             <TabsTrigger value="url" className="flex-1 gap-1.5">
               <LinkIcon className="h-3.5 w-3.5" />
-              Paste URL
+              URL
             </TabsTrigger>
           </TabsList>
+          <TabsContent value="library">
+            <LibraryTab
+              onInsert={(args) => {
+                onInsert(args)
+                onOpenChange(false)
+              }}
+            />
+          </TabsContent>
           <TabsContent value="upload">
             <UploadTab
               onInsert={(args) => {
@@ -79,6 +97,86 @@ export function InsertImageDialog({
         </Tabs>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function LibraryTab({
+  onInsert,
+}: {
+  onInsert: (args: { id: Id<"images">; alt: string; url: string | null }) => void
+}) {
+  const [query, setQuery] = useState("")
+  const images = useQuery(api.images.list, {})
+  const ids = useMemo(
+    () => (images ? images.map((i) => i._id) : []),
+    [images],
+  )
+  const urls = useQuery(api.images.urlsFor, ids.length > 0 ? { ids } : "skip")
+
+  const filtered = useMemo(() => {
+    if (!images) return []
+    const q = query.trim().toLowerCase()
+    if (!q) return images
+    return images.filter(
+      (i) =>
+        i.filename.toLowerCase().includes(q) ||
+        i.altText.toLowerCase().includes(q),
+    )
+  }, [images, query])
+
+  return (
+    <div className="space-y-3 py-3">
+      <Input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by filename or alt text…"
+      />
+      {images === undefined ? (
+        <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Loading…
+        </div>
+      ) : filtered.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          {images.length === 0
+            ? "No images in the library yet. Upload one to get started."
+            : "No images match."}
+        </p>
+      ) : (
+        <div className="grid max-h-72 grid-cols-3 gap-2 overflow-auto pr-1">
+          {filtered.map((img) => {
+            const url = urls?.[img._id] ?? null
+            return (
+              <button
+                key={img._id}
+                type="button"
+                onClick={() =>
+                  onInsert({ id: img._id, alt: img.altText, url })
+                }
+                title={img.altText || img.filename}
+                className="group relative aspect-square overflow-hidden rounded-md border bg-muted/30 transition-colors hover:border-primary"
+              >
+                {url ? (
+                  <img
+                    src={url}
+                    alt={img.altText}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <ImageOff className="h-4 w-4 text-muted-foreground/50" />
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        Picks reuse the image and its stored alt text — no re-upload.
+      </p>
+    </div>
   )
 }
 

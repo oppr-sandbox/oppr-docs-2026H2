@@ -148,42 +148,50 @@ html, body {
   color: #6b7280;
 }
 .title-main {
-  margin-top: 32pt;
+  margin-top: 16pt;
 }
 .title-main h1 {
-  font-size: 28pt;
+  font-size: 24pt;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.12;
   margin: 0;
   color: #0f172a;
 }
 .title-code {
-  margin-top: 6pt;
+  margin-top: 5pt;
   font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
-  font-size: 11pt;
+  font-size: 10pt;
   color: #6b7280;
 }
+/* Compact metadata band — kept tight so multiple linked machines plus the
+   revision history and references all fit on the front page. */
 .title-meta-grid {
-  margin-top: 28pt;
+  margin-top: 14pt;
   border-top: 1pt solid #e5e7eb;
   border-bottom: 1pt solid #e5e7eb;
-  padding: 12pt 0;
+  padding: 8pt 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6pt 22pt;
-  font-size: 10pt;
+  gap: 4pt 18pt;
+  font-size: 9pt;
+}
+.title-meta-grid > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8pt;
 }
 .title-meta-grid .k {
-  font-size: 8pt;
+  flex: 0 0 64pt;
+  font-size: 7.5pt;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #9ca3af;
 }
 .title-meta-grid .v { color: #1f2937; }
 
 .title-ppe {
-  margin-top: 16pt;
+  margin-top: 12pt;
   display: flex;
   flex-wrap: wrap;
   gap: 6pt;
@@ -338,10 +346,14 @@ html, body {
   margin: 8pt 0 10pt;
   page-break-inside: avoid;
 }
+/* Tones mirror the editor's CalloutBlock: warning=amber, danger=red,
+   notice=sky, tip=emerald. */
 .doc-body [data-callout="warning"] { border-color: #f59e0b; background: #fffbeb; }
 .doc-body [data-callout="danger"]  { border-color: #ef4444; background: #fef2f2; }
-.doc-body [data-callout="info"]    { border-color: #3b82f6; background: #eff6ff; }
+.doc-body [data-callout="notice"]  { border-color: #38bdf8; background: #f0f9ff; }
 .doc-body [data-callout="tip"]     { border-color: #10b981; background: #ecfdf5; }
+/* legacy aliases */
+.doc-body [data-callout="info"]    { border-color: #38bdf8; background: #f0f9ff; }
 .doc-body [data-callout="note"]    { border-color: #94a3b8; background: #f8fafc; }
 .doc-body [data-callout-title] {
   font-weight: 700;
@@ -376,7 +388,7 @@ html, body {
   width: 17pt;
   height: 17pt;
   border-radius: 50%;
-  background: #ea580c;
+  background: #2563eb;
   color: #fff;
   font-weight: 700;
   font-size: 9pt;
@@ -428,48 +440,156 @@ html, body {
   font-style: italic;
 }
 
+/* Launch-log chip — matches the editor's sky-toned chip. */
 .doc-body [data-launch-log] {
   display: inline-flex;
   align-items: center;
   gap: 5pt;
   padding: 2pt 8pt;
   border-radius: 999pt;
-  background: #dbeafe;
-  color: #1e3a8a;
+  background: #f0f9ff;
+  color: #075985;
   font-size: 9pt;
-  border: 0.5pt solid #93c5fd;
+  border: 0.5pt solid #7dd3fc;
 }
-.doc-body [data-launch-log]::before { content: "▶"; font-size: 7.5pt; }
+.doc-body [data-launch-log]::before { content: "▶"; font-size: 7.5pt; color: #0284c7; }
+/* Machine chip — must match the emerald chip shown in the editor / read view. */
 .doc-body [data-linked-asset] {
   display: inline-flex;
   align-items: center;
-  gap: 5pt;
-  padding: 2pt 7pt;
+  gap: 4pt;
+  padding: 1pt 6pt;
   border-radius: 4pt;
-  background: #f1f5f9;
-  color: #1e293b;
+  background: #ecfdf5;
+  color: #065f46;
   font-family: ui-monospace, monospace;
   font-size: 9pt;
-  border: 0.5pt solid #cbd5e1;
+  border: 0.5pt solid #6ee7b7;
 }
-.doc-body [data-linked-asset]::before { content: "◇"; }
+.doc-body [data-linked-asset]::before {
+  content: "⚙";
+  color: #059669;
+}
 
-/* Asset list block (rendered if option enabled) */
-.asset-list-block {
-  margin-bottom: 14pt;
+/* Reference-document chip — must match the indigo chip in the editor. */
+.doc-body [data-reference-doc] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4pt;
+  padding: 1pt 6pt;
+  border-radius: 4pt;
+  background: #eef2ff;
+  color: #3730a3;
+  font-family: ui-monospace, monospace;
+  font-size: 9pt;
+  border: 0.5pt solid #a5b4fc;
 }
-.asset-list-block h2 {
-  margin: 0 0 8pt;
-  font-size: 12pt;
+.doc-body [data-reference-doc]::before {
+  content: "❡";
+  color: #6366f1;
+}
+
+/* References & related documents (auto-generated) */
+.reference-block {
+  margin-top: 18pt;
+  margin-bottom: 18pt;
+}
+.reference-block h2 {
+  margin: 0 0 10pt;
+  font-size: 13pt;
   font-weight: 700;
   color: #0f172a;
 }
-.asset-list-block ul { margin: 0; padding-left: 22pt; font-size: 10pt; }
-.asset-list-block li { margin: 0 0 3pt; }
+.reference-block table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+}
+.reference-block th, .reference-block td {
+  border: 0.5pt solid #d1d5db;
+  padding: 5pt 8pt;
+  text-align: left;
+  vertical-align: top;
+}
+.reference-block th {
+  background: #f8fafc;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  font-size: 8pt;
+  letter-spacing: 0.06em;
+}
+.reference-block code {
+  font-family: ui-monospace, monospace;
+  font-size: 9pt;
+  color: #4338ca;
+}
+
+/* Embedded PDF attachment (rasterised pages) */
+.pdf-attachment {
+  margin-top: 14pt;
+}
+.pdf-attachment-head, .pdf-attachment-note .pdf-attachment-head {
+  font-size: 9pt;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8pt;
+}
+.pdf-attachment .pdf-page {
+  margin: 0 0 10pt;
+  page-break-inside: avoid;
+}
+.pdf-attachment .pdf-page img {
+  display: block;
+  width: 100%;
+  border: 0.5pt solid #e2e8f0;
+}
+.pdf-attachment-note {
+  margin-top: 14pt;
+  border: 0.5pt dashed #cbd5e1;
+  border-radius: 4pt;
+  padding: 10pt 12pt;
+  background: #f8fafc;
+  font-size: 10pt;
+  color: #475569;
+}
+
+/* Linked machines block — same table format as revision / references. */
+.asset-list-block {
+  margin-top: 16pt;
+  margin-bottom: 16pt;
+}
+.asset-list-block h2 {
+  margin: 0 0 10pt;
+  font-size: 13pt;
+  font-weight: 700;
+  color: #0f172a;
+}
+.asset-list-block table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+}
+.asset-list-block th, .asset-list-block td {
+  border: 0.5pt solid #d1d5db;
+  padding: 5pt 8pt;
+  text-align: left;
+  vertical-align: top;
+}
+.asset-list-block th {
+  background: #f8fafc;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  font-size: 8pt;
+  letter-spacing: 0.06em;
+}
 .asset-list-block code {
   font-family: ui-monospace, monospace;
-  font-size: 9.5pt;
-  color: #ea580c;
+  font-size: 9pt;
+  color: #047857;
 }
 
 /* Watermark — repeats on every page via fixed positioning */

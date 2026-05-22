@@ -1,7 +1,13 @@
 // Shared domain types. Used across DB layer, pages, and AI layer.
 
 export type DocumentType = "sop" | "manual" | "work_instruction" | "lmra"
-export type DocumentStatus = "draft" | "in_review" | "published" | "archived"
+export type DocumentStatus =
+  | "pre_draft"
+  | "draft"
+  | "in_review"
+  | "approved"
+  | "published"
+  | "archived"
 export type DocumentBodyKind = "tiptap" | "pdf"
 export type UserRole = "engineer" | "operator" | "manager"
 
@@ -43,6 +49,8 @@ export interface Doc {
   type: DocumentType
   status: DocumentStatus
   current_version: number
+  /** Published edition served to operators. Null until first publish. */
+  live_version: number | null
   owner_id: string
   tags: string[]
   created_at: string

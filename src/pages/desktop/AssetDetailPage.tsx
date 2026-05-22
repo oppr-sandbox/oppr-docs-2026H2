@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, useLocation, useRoute } from "wouter"
-import { ArrowLeft, Factory, FileText, Link as LinkIcon, MapPin, Pencil, QrCode } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import { TopBar } from "@/components/layout/TopBar"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMutation, useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
@@ -12,15 +11,11 @@ import {
   toLegacyAssetLog,
   toLegacyDoc,
 } from "@/lib/convex-adapters"
-import {
-  DocumentLibraryTable,
-  type AssetPreview,
-  type DocumentRowAction,
-} from "@/components/docs/DocumentLibraryTable"
+import { type AssetPreview, type DocumentRowAction } from "@/components/docs/DocumentLibraryTable"
 import { DeleteDocumentDialog } from "@/components/docs/DeleteDocumentDialog"
+import { AssetDetailBody } from "@/components/docs/AssetDetailBody"
 import type { AssetLog, Doc } from "@/types"
 import { AssetPreviewModal } from "@/components/docs/AssetPreviewModal"
-import { EditAssetModal } from "@/components/docs/EditAssetModal"
 import { LogReferenceModal } from "@/components/docs/LogReferenceModal"
 import { toast } from "sonner"
 
@@ -29,7 +24,6 @@ export function AssetDetailPage() {
   const id = params?.id
   const [, navigate] = useLocation()
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
   const [activeLog, setActiveLog] = useState<AssetLog | null>(null)
 
   const result = useQuery(
@@ -153,141 +147,34 @@ export function AssetDetailPage() {
         ]}
       />
 
-      <div className="space-y-6 p-6">
-        <div className="rounded-md border bg-card p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-3">
-              <div>
-                <h1 className="text-2xl font-semibold">{asset.name}</h1>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">
-                  {asset.code}
-                </div>
-              </div>
-              {asset.description && (
-                <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                  {asset.description}
-                </p>
-              )}
-              <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-                <div className="flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5" />
-                  <span>{asset.site}</span>
-                  {asset.location && (
-                    <>
-                      <span className="opacity-60">·</span>
-                      <span>{asset.location}</span>
-                    </>
-                  )}
-                </div>
-                {asset.floorplan && (
-                  <div className="flex items-center gap-1">
-                    <Factory className="h-3.5 w-3.5" />
-                    <span>{asset.floorplan}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-1">
-                  <LinkIcon className="h-3.5 w-3.5" />
-                  <span>{asset.is_linked ? "Linked on floorplan" : "Unlinked"}</span>
-                </div>
-                <div>
-                  <span className="text-xs uppercase tracking-wide opacity-60">Level&nbsp;</span>
-                  <span>{asset.level}</span>
-                </div>
-              </div>
-              {logs.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Connected logs
-                  </div>
-                  <ul className="space-y-1.5">
-                    {logs.map((log) => (
-                      <li key={log.code}>
-                        <button
-                          type="button"
-                          onClick={() => setActiveLog(log)}
-                          className="flex w-full items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted/60"
-                        >
-                          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                          <div className="min-w-0">
-                            <div className="font-mono text-sm font-semibold">
-                              {log.code}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {log.name}
-                              {log.description ? ` — ${log.description}` : ""}
-                            </div>
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPreviewOpen(true)}
-                className="gap-2"
-              >
-                <QrCode className="h-4 w-4" />
-                QR code
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setEditOpen(true)}
-                className="gap-2"
-              >
-                <Pencil className="h-4 w-4" />
-                Edit asset
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold">Linked documents</h2>
-            <span className="text-xs text-muted-foreground">
-              {docs.length} document{docs.length === 1 ? "" : "s"}
-            </span>
-          </div>
-          <DocumentLibraryTable
-            docs={docs}
-            assetsByDoc={assetsByDoc}
-            onRowClick={(d) => navigate(`/docs/${d.id}`)}
-            onAssetClick={(aid) => navigate(`/assets/${aid}`)}
-            onAction={handleAction}
-            emptyMessage="No documents are linked to this asset yet."
-          />
-        </div>
+      <div className="p-6">
+        <AssetDetailBody
+          asset={asset}
+          docs={docs}
+          logs={logs}
+          assetsByDoc={assetsByDoc}
+          onShowQr={() => setPreviewOpen(true)}
+          onSave={async (patch) => {
+            try {
+              await updateAssetMut({ id: asset.id as Id<"assets">, ...patch })
+              toast.success("Asset updated")
+            } catch (err) {
+              toast.error(
+                err instanceof Error ? err.message : "Failed to update asset",
+              )
+            }
+          }}
+          onOpenDoc={(docId) => navigate(`/docs/${docId}`)}
+          onOpenAsset={(aid) => navigate(`/assets/${aid}`)}
+          onOpenLog={(log) => setActiveLog(log)}
+          onDocAction={handleAction}
+        />
       </div>
 
       <AssetPreviewModal
         asset={asset}
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-      />
-      <EditAssetModal
-        asset={asset}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onSave={async (patch) => {
-          try {
-            await updateAssetMut({
-              id: asset.id as Id<"assets">,
-              ...patch,
-            })
-            toast.success("Asset updated")
-            setEditOpen(false)
-          } catch (err) {
-            toast.error(
-              err instanceof Error ? err.message : "Failed to update asset",
-            )
-          }
-        }}
       />
       <LogReferenceModal
         log={activeLog}
