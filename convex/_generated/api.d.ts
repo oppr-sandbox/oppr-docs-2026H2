@@ -14,6 +14,7 @@ import type * as ai_constants from "../ai/constants.js";
 import type * as ai_embed from "../ai/embed.js";
 import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
+import type * as coverSettings from "../coverSettings.js";
 import type * as documents from "../documents.js";
 import type * as files from "../files.js";
 import type * as http from "../http.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   "ai/embed": typeof ai_embed;
   assets: typeof assets;
   auth: typeof auth;
+  coverSettings: typeof coverSettings;
   documents: typeof documents;
   files: typeof files;
   http: typeof http;

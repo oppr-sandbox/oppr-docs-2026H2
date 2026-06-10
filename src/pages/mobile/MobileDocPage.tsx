@@ -324,6 +324,7 @@ export function MobileDocPage() {
         </Button>
         <PublishToPdfDialog
           documentId={doc.id}
+          version={doc.live_version ?? doc.current_version}
           trigger={
             <Button
               variant="ghost"

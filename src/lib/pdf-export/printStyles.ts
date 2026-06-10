@@ -19,11 +19,23 @@ export function buildPrintStyles(opts: {
   effective: string | null
   reviewBy: string | null
   watermark: string | null
+  /** Cover settings: replaces the doc title in the recurring header when set. */
+  headerRightOverride?: string | null
+  /** Cover settings: confidentiality line / footer text, centered. */
+  footerCenter?: string | null
+  showPageNumbers?: boolean
+  titleSize?: "sm" | "md" | "lg"
+  accentColor?: string | null
 }): string {
   const { docId, title, version, effective, watermark } = opts
   const headerLeft = `${docId} · v${version}`
-  const headerRight = title.replace(/"/g, '\\"')
+  const headerRight = (opts.headerRightOverride?.trim() || title).replace(/"/g, '\\"')
   const footerLeft = effective ? `Effective ${effective}` : ""
+  const footerCenter = opts.footerCenter?.trim() ?? ""
+  const showPageNumbers = opts.showPageNumbers ?? true
+  const accent = normalizeHex(opts.accentColor) ?? "#ea580c"
+  const titlePt =
+    opts.titleSize === "sm" ? "19pt" : opts.titleSize === "lg" ? "30pt" : "24pt"
 
   return `
 :root {
@@ -36,12 +48,14 @@ export function buildPrintStyles(opts: {
   @top-left  { content: "${escapeCss(headerLeft)}"; font-size: 9pt; color: #777; font-family: ui-sans-serif, system-ui; }
   @top-right { content: "${escapeCss(headerRight)}"; font-size: 9pt; color: #777; font-family: ui-sans-serif, system-ui; }
   @bottom-left  { content: "${escapeCss(footerLeft)}"; font-size: 8.5pt; color: #999; font-family: ui-sans-serif, system-ui; }
-  @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 8.5pt; color: #999; font-family: ui-sans-serif, system-ui; }
+  @bottom-center { content: "${escapeCss(footerCenter)}"; font-size: 8.5pt; color: #999; font-family: ui-sans-serif, system-ui; }
+  @bottom-right { content: ${showPageNumbers ? '"Page " counter(page) " of " counter(pages)' : '""'}; font-size: 8.5pt; color: #999; font-family: ui-sans-serif, system-ui; }
 }
 @page :first {
   @top-left  { content: ""; }
   @top-right { content: ""; }
   @bottom-left  { content: ""; }
+  @bottom-center { content: ""; }
   @bottom-right { content: ""; }
 }
 
@@ -103,11 +117,11 @@ html, body {
     font-family: inherit;
   }
   .preview-toolbar button.primary {
-    background: #ea580c;
-    border-color: #ea580c;
+    background: ${accent};
+    border-color: ${accent};
   }
   .preview-toolbar button:hover { background: rgba(255,255,255,0.18); }
-  .preview-toolbar button.primary:hover { background: #c2410c; }
+  .preview-toolbar button.primary:hover { filter: brightness(0.85); }
 }
 
 /* Print: each .doc-page is a logical page; let CSS handle real pagination */
@@ -133,12 +147,19 @@ html, body {
   flex-direction: column;
   min-height: 250mm;
 }
+.title-logo {
+  display: block;
+  max-height: 16mm;
+  max-width: 60mm;
+  object-fit: contain;
+  margin-bottom: 10pt;
+}
 .title-eyebrow {
   font-size: 9pt;
   font-weight: 700;
   letter-spacing: 0.3em;
   text-transform: uppercase;
-  color: #ea580c;
+  color: ${accent};
 }
 .title-kicker {
   margin-top: 4pt;
@@ -151,7 +172,7 @@ html, body {
   margin-top: 12pt;
 }
 .title-main h1 {
-  font-size: 24pt;
+  font-size: ${titlePt};
   font-weight: 700;
   line-height: 1.12;
   margin: 0;
@@ -266,6 +287,10 @@ html, body {
   text-transform: uppercase;
   color: #0f172a;
 }
+.title-controlled .stamp.confidential {
+  color: #b91c1c;
+  margin-bottom: 2pt;
+}
 
 /* ---------- Front matter ("Document overview" page) ---------- */
 /* Tinted section chips + header rows echo the in-app sidebar cards:
@@ -317,6 +342,21 @@ html, body {
   font-size: 9pt;
 }
 
+/* Code pills — visually echo the in-app chips (linkedAsset / referenceDoc /
+   launchLog) so the overview tables match what the operator sees on screen. */
+.fm-block .code-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4pt;
+  padding: 1pt 6pt;
+  border-radius: 4pt;
+  border: 0.5pt solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 9pt;
+}
+
 .fm-slate .fm-head { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
 .fm-slate .fm-head::before { content: "↺"; font-size: 9pt; }
 .fm-slate th { background: #f8fafc; color: #475569; }
@@ -325,16 +365,22 @@ html, body {
 .fm-emerald .fm-head::before { content: "⚙"; color: #059669; }
 .fm-emerald th { background: #ecfdf5; color: #047857; }
 .fm-emerald code { color: #047857; }
+.fm-emerald .code-pill { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+.fm-emerald .code-pill::before { content: "⚙"; color: #059669; }
 
 .fm-indigo .fm-head { background: #eef2ff; color: #3730a3; border-color: #a5b4fc; }
 .fm-indigo .fm-head::before { content: "❡"; color: #6366f1; }
 .fm-indigo th { background: #eef2ff; color: #4338ca; }
 .fm-indigo code { color: #4338ca; }
+.fm-indigo .code-pill { background: #eef2ff; border-color: #a5b4fc; color: #3730a3; }
+.fm-indigo .code-pill::before { content: "❡"; color: #6366f1; }
 
 .fm-sky .fm-head { background: #f0f9ff; color: #075985; border-color: #7dd3fc; }
 .fm-sky .fm-head::before { content: "▶"; font-size: 7pt; color: #0284c7; }
 .fm-sky th { background: #f0f9ff; color: #0369a1; }
 .fm-sky code { color: #0369a1; }
+.fm-sky .code-pill { background: #f0f9ff; border-color: #7dd3fc; color: #075985; }
+.fm-sky .code-pill::before { content: "▶"; font-size: 7pt; color: #0284c7; }
 
 /* ---------- Body content ---------- */
 
@@ -622,4 +668,12 @@ ${
 function escapeCss(s: string): string {
   // CSS string in content: " escapes
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+}
+
+// The accent color is interpolated into CSS — only accept a strict hex form
+// so a malformed/malicious settings value can't break out of the stylesheet.
+function normalizeHex(value: string | null | undefined): string | null {
+  if (!value) return null
+  const v = value.trim()
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : null
 }

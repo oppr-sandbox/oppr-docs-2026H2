@@ -38,6 +38,20 @@ export interface LinkedLogInfo {
   code?: string | null
 }
 
+// Org-wide export personalisation, configured once under Templates → PDF
+// cover. All fields optional-ish: null means "use the built-in default".
+export interface PrintCoverSettings {
+  companyName: string | null
+  headerText: string | null
+  footerText: string | null
+  titleSize: "sm" | "md" | "lg"
+  /** Logo inlined as a data URL at export time so the popup is self-contained. */
+  logoDataUrl: string | null
+  showPageNumbers: boolean
+  confidentialityLabel: string | null
+  accentColor: string | null
+}
+
 interface BuildArgs {
   doc: Doc
   version: DocVersion
@@ -57,6 +71,8 @@ interface BuildArgs {
   logsById?: Record<string, LinkedLogInfo>
   /** Diagram background url → fetched data URL, so the export is self-contained. */
   diagramBgDataUrls?: Record<string, string>
+  /** Org-wide cover/header/footer settings. Omitted → built-in defaults. */
+  cover?: PrintCoverSettings | null
 }
 
 const TYPE_LABEL: Record<Doc["type"], string> = {
@@ -65,6 +81,8 @@ const TYPE_LABEL: Record<Doc["type"], string> = {
   work_instruction: "Work Instruction",
   lmra: "Last-Minute Risk Assessment",
 }
+
+type DisplayStatus = Doc["status"] | "superseded"
 
 export function buildPrintDoc(args: BuildArgs): string {
   const {
@@ -80,17 +98,28 @@ export function buildPrintDoc(args: BuildArgs): string {
     pdfPagesByStorageId,
     logsById,
     diagramBgDataUrls,
+    cover,
   } = args
   CURRENT_PDF_PAGES = pdfPagesByStorageId
   CURRENT_DIAGRAM_BG = diagramBgDataUrls
   const effective = formatDate(version.published_at)
   const reviewBy = addOneYear(version.published_at)
-  // The PDF reflects the live (published) edition. When a newer edition is being
-  // drafted, current_version is ahead of the live one — export the live number.
-  const displayVersion = doc.live_version ?? doc.current_version
-  const displayStatus: Doc["status"] =
-    doc.live_version != null ? "published" : doc.status
+  // Version-aware export: the PDF reflects exactly the edition handed in, not
+  // the live one. Status is derived per-edition — the live edition is
+  // "published", the working edition carries the document status, anything
+  // older is "superseded".
+  const displayVersion = version.version
+  const displayStatus: DisplayStatus =
+    doc.live_version === version.version
+      ? "published"
+      : version.version === doc.current_version
+        ? doc.status
+        : "superseded"
   const watermarkText = watermarkLabel(options.watermark, displayStatus)
+
+  const footerCenter = [cover?.confidentialityLabel, cover?.footerText]
+    .filter((s): s is string => !!s && s.trim().length > 0)
+    .join(" · ")
 
   const styles = buildPrintStyles({
     docId: doc.naming_code,
@@ -99,6 +128,11 @@ export function buildPrintDoc(args: BuildArgs): string {
     effective: options.recurringFooter ? effective : null,
     reviewBy,
     watermark: watermarkText,
+    headerRightOverride: cover?.headerText ?? null,
+    footerCenter: footerCenter || null,
+    showPageNumbers: cover?.showPageNumbers ?? true,
+    titleSize: cover?.titleSize ?? "md",
+    accentColor: cover?.accentColor ?? null,
   })
 
   const pages: string[] = []
@@ -113,6 +147,7 @@ export function buildPrintDoc(args: BuildArgs): string {
         ppeOnDoc,
         displayVersion,
         displayStatus,
+        cover,
       }),
     )
   }
@@ -181,7 +216,8 @@ function renderTitlePage(args: {
   reviewBy: string
   ppeOnDoc: PpeItem[]
   displayVersion: number
-  displayStatus: Doc["status"]
+  displayStatus: DisplayStatus
+  cover?: PrintCoverSettings | null
 }): string {
   const {
     doc,
@@ -191,14 +227,23 @@ function renderTitlePage(args: {
     ppeOnDoc,
     displayVersion,
     displayStatus,
+    cover,
   } = args
   const ownerLabel = owner ? `${escapeHtml(owner.name)} (${escapeHtml(owner.role)})` : "—"
   const ppe = ppeOnDoc
     .map((p) => `<span>${escapeHtml(PPE_META[p]?.label ?? p)}</span>`)
     .join("")
+  const eyebrowCompany = cover?.companyName?.trim() || "Oppr DOCS"
+  const logo = cover?.logoDataUrl
+    ? `<img class="title-logo" src="${escapeAttr(cover.logoDataUrl)}" alt="${escapeAttr(eyebrowCompany)} logo" />`
+    : ""
+  const confidentiality = cover?.confidentialityLabel?.trim()
+    ? `<div class="stamp confidential">${escapeHtml(cover.confidentialityLabel.trim())}</div>`
+    : ""
   return `
 <section class="doc-page title-page">
-  <div class="title-eyebrow">Oppr DOCS · Controlled document</div>
+  ${logo}
+  <div class="title-eyebrow">${escapeHtml(eyebrowCompany)} · Controlled document</div>
   <div class="title-kicker">${escapeHtml(TYPE_LABEL[doc.type])}</div>
   <div class="title-main">
     <h1>${escapeHtml(doc.title)}</h1>
@@ -215,6 +260,7 @@ function renderTitlePage(args: {
   </div>
   ${ppe ? `<div class="title-ppe"><div class="title-ppe-label">Required PPE</div><div class="title-ppe-items">${ppe}</div></div>` : ""}
   <div class="title-controlled">
+    ${confidentiality}
     <div class="stamp">Controlled copy</div>
     <div>Print date ${escapeHtml(formatToday())}. Verify the latest revision in Oppr DOCS before use. Uncontrolled when printed and not stamped or registered.</div>
   </div>
@@ -227,7 +273,7 @@ function renderTitlePage(args: {
 
 function renderRevisionBlock(args: {
   displayVersion: number
-  displayStatus: Doc["status"]
+  displayStatus: DisplayStatus
   version: DocVersion
   versions?: RevisionEntry[]
 }): string {
@@ -319,7 +365,7 @@ function renderReferences(
       ${refs
         .map((r) => {
           const title = titleById?.[r.docId] ?? deriveTitle(r.label, r.code)
-          return `<tr><td><code>${escapeHtml(r.code || "—")}</code></td><td>${escapeHtml(title)}</td></tr>`
+          return `<tr><td>${r.code ? `<span class="code-pill">${escapeHtml(r.code)}</span>` : "—"}</td><td>${escapeHtml(title)}</td></tr>`
         })
         .join("")}
     </tbody>
@@ -352,7 +398,7 @@ function renderAssetList(assets: Asset[]): string {
       ${assets
         .map(
           (a) =>
-            `<tr><td><code>${escapeHtml(a.code)}</code></td><td>${escapeHtml(a.name)}${a.location ? ` <span style="color:#9ca3af">(${escapeHtml(a.location)})</span>` : ""}</td></tr>`,
+            `<tr><td><span class="code-pill">${escapeHtml(a.code)}</span></td><td>${escapeHtml(a.name)}${a.location ? ` <span style="color:#9ca3af">(${escapeHtml(a.location)})</span>` : ""}</td></tr>`,
         )
         .join("")}
     </tbody>
@@ -413,7 +459,7 @@ function renderLinkedLogs(
           const info = e.logId ? logsById?.[e.logId] : undefined
           const code = info?.code ?? null
           const name = info?.name || e.label || "—"
-          return `<tr><td>${code ? `<code>${escapeHtml(code)}</code>` : "—"}</td><td>${escapeHtml(name)}</td></tr>`
+          return `<tr><td>${code ? `<span class="code-pill">${escapeHtml(code)}</span>` : "—"}</td><td>${escapeHtml(name)}</td></tr>`
         })
         .join("")}
     </tbody>
@@ -726,7 +772,7 @@ function formatToday(): string {
 
 function watermarkLabel(
   choice: PdfExportOptions["watermark"],
-  status: Doc["status"],
+  status: DisplayStatus,
 ): string | null {
   if (choice === "none") return null
   if (choice === "controlled") return "Controlled copy"

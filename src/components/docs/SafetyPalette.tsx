@@ -18,32 +18,14 @@ import { ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { CALLOUT_META, type CalloutKind } from "./CalloutBlock"
 
-const SAFETY_ORDER: CalloutKind[] = [
-  // Danger family
-  "danger",
-  "hotwork",
-  "loto",
-  "electrical",
-  // Warning family
-  "warning",
-  "caution",
-  "heights",
-  "confined",
-  // Notice family
-  "notice",
-  "authorised",
-  "permit",
-  "cryo",
-  // Tip
-  "tip",
+// Grouped in the same order as the on-block "Change type" menu so creating a
+// callout and re-typing one feel like the same picker.
+const SAFETY_GROUPS: { title: string; kinds: CalloutKind[] }[] = [
+  { title: "Danger", kinds: ["danger", "hotwork", "loto", "electrical"] },
+  { title: "Warning", kinds: ["warning", "caution", "heights", "confined"] },
+  { title: "Notice", kinds: ["notice", "authorised", "permit", "cryo"] },
+  { title: "Tip", kinds: ["tip"] },
 ]
-
-const TONE_RING: Record<string, string> = {
-  danger: "ring-red-400/40 hover:ring-red-400/70",
-  warning: "ring-amber-400/40 hover:ring-amber-400/70",
-  notice: "ring-sky-400/40 hover:ring-sky-400/70",
-  tip: "ring-emerald-400/40 hover:ring-emerald-400/70",
-}
 
 const TONE_TEXT: Record<string, string> = {
   danger: "text-red-700 dark:text-red-300",
@@ -82,42 +64,44 @@ export function SafetyPalette({
           </Button>
         )}
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-[340px] p-2">
-        <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <ShieldAlert className="h-3 w-3" />
-          Safety callouts
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="max-h-96 w-64 overflow-auto p-1.5"
+      >
+        <div className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Insert callout
         </div>
-        <div className="grid grid-cols-4 gap-1">
-          {SAFETY_ORDER.map((kind) => {
-            const meta = CALLOUT_META[kind]
-            const Icon = meta.icon
-            return (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => {
-                  onSelect(kind)
-                  onOpenChange?.(false)
-                }}
-                className={cn(
-                  "flex flex-col items-center gap-1 rounded-md border bg-background px-1.5 py-2 text-[10px] font-medium transition-colors hover:bg-muted/40",
-                  "ring-1 ring-inset",
-                  TONE_RING[meta.tone],
-                )}
-                title={meta.label}
-              >
-                <Icon className={cn("h-4 w-4", TONE_TEXT[meta.tone])} />
-                <span className="line-clamp-2 text-center leading-tight">
-                  {meta.label}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-        <div className="mt-2 border-t pt-2 text-[10px] text-muted-foreground">
-          Click a tile to insert a typed callout. Use the slash menu (/) for the
-          long form picker.
-        </div>
+        {SAFETY_GROUPS.map((group) => (
+          <div key={group.title} className="mb-1 last:mb-0">
+            <div
+              className={cn(
+                "px-2 py-1 text-[10px] font-semibold uppercase tracking-wider",
+                TONE_TEXT[group.title.toLowerCase()] ?? "text-muted-foreground",
+              )}
+            >
+              {group.title}
+            </div>
+            {group.kinds.map((kind) => {
+              const meta = CALLOUT_META[kind]
+              const Icon = meta.icon
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => {
+                    onSelect(kind)
+                    onOpenChange?.(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                >
+                  <Icon className={cn("h-4 w-4 shrink-0", TONE_TEXT[meta.tone])} />
+                  <span>{meta.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        ))}
       </PopoverContent>
     </Popover>
   )

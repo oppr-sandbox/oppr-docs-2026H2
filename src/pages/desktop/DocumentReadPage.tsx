@@ -5,7 +5,10 @@ import {
   ArrowLeft,
   Edit,
   FileDown,
+  GitBranch,
   History,
+  Lock,
+  Pencil,
   Printer,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -41,7 +44,13 @@ export function DocumentReadPage() {
   const search = useSearch()
   const [, navigate] = useLocation()
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [overrideVersion, setOverrideVersion] = useState<number | null>(null)
+  const [overrideVersion, setOverrideVersion] = useState<number | null>(() => {
+    const v = new URLSearchParams(
+      typeof window !== "undefined" ? window.location.search : "",
+    ).get("v")
+    const n = v ? parseInt(v, 10) : NaN
+    return Number.isFinite(n) && n > 0 ? n : null
+  })
   const [forkOpen, setForkOpen] = useState(false)
   const [forking, setForking] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -58,10 +67,20 @@ export function DocumentReadPage() {
     api.documents.getWithAssets,
     id ? { id: id as Id<"documents"> } : "skip",
   )
-  const currentVersion = useQuery(
+  const servingVersion = useQuery(
     api.documents.getServingVersion,
     id ? { documentId: id as Id<"documents"> } : "skip",
   )
+  // The version override actually swaps the rendered body — viewing v2 of a
+  // doc whose live edition is v1 fetches v2, and the PDF export follows suit.
+  const overrideRow = useQuery(
+    api.documents.getVersionByNumber,
+    id && overrideVersion != null
+      ? { documentId: id as Id<"documents">, version: overrideVersion }
+      : "skip",
+  )
+  const currentVersion =
+    overrideVersion != null ? (overrideRow ?? null) : servingVersion
   const pdfUrl = useQuery(
     api.files.getUrl,
     currentVersion?.pdfStorageId
@@ -152,8 +171,10 @@ export function DocumentReadPage() {
     )
   }
 
+  const servingVer = liveVer ?? workingVer
+  const viewingDraft = hasWorkingDraft && overrideVersion === workingVer
   const isViewingHistorical =
-    overrideVersion != null && overrideVersion !== docWithAssets.current_version
+    overrideVersion != null && !viewingDraft && overrideVersion !== servingVer
   const renderedVersionNumber = version?.version ?? docWithAssets.current_version
   const ppeItems =
     version?.body_kind === "tiptap" ? extractPpeItems(version.body_json) : []
@@ -170,9 +191,11 @@ export function DocumentReadPage() {
         <PageHeader
           title={`${docWithAssets.naming_code} · ${docWithAssets.title}`}
           subtitle={
-            hasWorkingDraft
-              ? `v${renderedVersionNumber} · Live`
-              : `v${renderedVersionNumber} · ${docWithAssets.status}`
+            viewingDraft
+              ? `v${renderedVersionNumber} · draft in progress`
+              : hasWorkingDraft
+                ? `v${renderedVersionNumber} · Live`
+                : `v${renderedVersionNumber} · ${docWithAssets.status}`
           }
           actions={
             <>
@@ -194,13 +217,15 @@ export function DocumentReadPage() {
               </Button>
               <PublishToPdfDialog
                 documentId={docWithAssets.id}
+                version={renderedVersionNumber}
                 trigger={
                   <Button
                     size="sm"
                     className="gap-1.5 bg-orange-600 text-white hover:bg-orange-700"
+                    title={`Export v${renderedVersionNumber} — the version you are viewing — as a PDF`}
                   >
                     <FileDown className="h-3.5 w-3.5" />
-                    Publish to PDF
+                    PDF
                   </Button>
                 }
               />
@@ -215,19 +240,53 @@ export function DocumentReadPage() {
 
       <div className="grid flex-1 gap-6 p-6 lg:grid-cols-[1fr_240px] print:block print:p-0">
         <div className="min-w-0 space-y-4">
-          {hasWorkingDraft && !isViewingHistorical && (
+          {hasWorkingDraft && !isViewingHistorical && !viewingDraft && (
             <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100 print:hidden">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription className="flex items-center justify-between gap-3">
+              <GitBranch className="h-4 w-4" />
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
                 <span>
                   You are viewing the live v{liveVer}. A newer edition (v
-                  {workingVer}) is in progress
-                  {workingStatus ? ` · ${workingStatus}` : ""} and will replace it
-                  once published.
+                  {workingVer}
+                  {workingStatus ? ` · ${workingStatus}` : ""}) is in progress
+                  and will replace it once published.
                 </span>
-                <Button size="sm" variant="outline" onClick={goEdit}>
-                  Open in editor
-                </Button>
+                <span className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setOverrideVersion(workingVer)}
+                  >
+                    <GitBranch className="mr-1 h-3.5 w-3.5" />
+                    View v{workingVer} draft
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={goEdit}>
+                    Open in editor
+                  </Button>
+                </span>
+              </AlertDescription>
+            </Alert>
+          )}
+          {viewingDraft && (
+            <Alert className="border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-100 print:hidden">
+              <GitBranch className="h-4 w-4" />
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                <span>
+                  You are viewing the v{workingVer} draft
+                  {workingStatus ? ` (${workingStatus})` : ""}. Operators still
+                  see the live v{liveVer}. The PDF button exports this draft.
+                </span>
+                <span className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setOverrideVersion(null)}
+                  >
+                    View live v{liveVer}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={goEdit}>
+                    Open in editor
+                  </Button>
+                </span>
               </AlertDescription>
             </Alert>
           )}
@@ -285,16 +344,51 @@ export function DocumentReadPage() {
       </div>
 
       <AlertDialog open={forkOpen} onOpenChange={setForkOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>Create a new version?</AlertDialogTitle>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-primary" />
+              Create version v{workingVer + 1}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This document is published. You are about to create version v
-              {workingVer + 1}, starting as a draft copy of the live v
-              {liveVer ?? workingVer}. The live version stays online for
-              operators until the new one is reviewed, approved, and published.
+              This document is published. A new draft edition forks from the
+              live v{liveVer ?? workingVer}; the live version stays online for
+              operators until v{workingVer + 1} is reviewed, approved, and
+              published.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1.5 rounded-md border border-sky-200 bg-sky-50/60 p-3 dark:border-sky-900/40 dark:bg-sky-950/20">
+              <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-300">
+                <Pencil className="h-3 w-3" />
+                Carried over — editable in v{workingVer + 1}
+              </p>
+              <ul className="list-disc space-y-0.5 pl-4 text-xs text-sky-900/90 dark:text-sky-100/90">
+                <li>Body content (copied from the live version)</li>
+                <li>Linked machines, logs &amp; references (follow the body)</li>
+                <li>Title, reviewer and approver assignments</li>
+              </ul>
+            </div>
+            <div className="space-y-1.5 rounded-md border bg-muted/40 p-3">
+              <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <Lock className="h-3 w-3" />
+                Fixed — never changes
+              </p>
+              <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                <li>
+                  Naming code{" "}
+                  <span className="font-mono">{docWithAssets.naming_code}</span>
+                </li>
+                <li>Type, location &amp; discipline (part of the code)</li>
+                <li>
+                  v{liveVer ?? workingVer} history and sign-offs — the live
+                  version keeps serving operators, QR and IDA
+                </li>
+              </ul>
+            </div>
+          </div>
+
           <AlertDialogFooter>
             <AlertDialogCancel disabled={forking}>Cancel</AlertDialogCancel>
             <AlertDialogAction

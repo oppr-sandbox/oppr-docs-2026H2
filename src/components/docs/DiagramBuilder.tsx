@@ -27,6 +27,7 @@ import {
   Diamond,
   GitBranch,
   Image as ImageIcon,
+  LayoutTemplate,
   Lock,
   LockOpen,
   Maximize2,
@@ -43,7 +44,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
@@ -496,6 +496,7 @@ export function DiagramBuilder({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button type="button" size="sm" variant="outline" className="h-7 gap-1.5 text-xs">
+              <LayoutTemplate className="h-3.5 w-3.5 text-primary" />
               Import template
               <ChevronDown className="h-3.5 w-3.5" />
             </Button>
@@ -509,15 +510,6 @@ export function DiagramBuilder({
               <Diamond className="mr-2 h-4 w-4" />
               Decision branch
             </DropdownMenuItem>
-            {onUploadBackground && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={uploading} onClick={() => fileRef.current?.click()}>
-                  <ImageIcon className="mr-2 h-4 w-4" />
-                  {uploading ? "Uploading…" : "Background image…"}
-                </DropdownMenuItem>
-              </>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
         {onUploadBackground && (
@@ -568,6 +560,17 @@ export function DiagramBuilder({
             <MoveUpRight className="h-3.5 w-3.5 text-primary" />
             Arrow
           </button>
+          {onUploadBackground && (
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => fileRef.current?.click()}
+              className="flex w-full items-center gap-1.5 rounded-md border bg-card px-2 py-1.5 text-[11px] transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              <ImageIcon className="h-3.5 w-3.5 text-primary" />
+              {uploading ? "Uploading…" : "Background"}
+            </button>
+          )}
 
           {bg && (
             <div className="space-y-1.5 pt-1">

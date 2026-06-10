@@ -119,6 +119,28 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_type", ["type"]),
 
+  // ---- PDF cover settings ---------------------------------------------------
+  // Single-row table (upserted): org-wide configuration for how exported PDFs
+  // look. Every export consumes this; there is no per-document override.
+  coverSettings: defineTable({
+    companyName: v.union(v.string(), v.null()),
+    headerText: v.union(v.string(), v.null()),
+    footerText: v.union(v.string(), v.null()),
+    titleSize: v.union(v.literal("sm"), v.literal("md"), v.literal("lg")),
+    logoImageId: v.optional(v.union(v.id("images"), v.null())),
+    showPageNumbers: v.boolean(),
+    confidentialityLabel: v.union(v.string(), v.null()),
+    defaultWatermark: v.union(
+      v.literal("none"),
+      v.literal("controlled"),
+      v.literal("draft"),
+      v.literal("review"),
+      v.null(),
+    ),
+    accentColor: v.union(v.string(), v.null()),
+    updatedAt: v.number(),
+  }),
+
   // ---- Naming vocabulary + counters ----------------------------------------
   namingLocations: defineTable({
     code: v.string(),

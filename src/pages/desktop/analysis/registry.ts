@@ -48,7 +48,8 @@ export interface AnalysisMeta {
 export const ANALYSES: AnalysisMeta[] = [
   {
     slug: "authoring-hardening-batch",
-    title: "Authoring hardening — naming lifecycle, pills, images, PDF, seed",
+    title:
+      "Authoring hardening — naming lifecycle, pills, images, PDF, seed (+ batch 2: version-aware export, cover settings)",
     area: "Editor",
     status: "done",
     updatedAt: "2026-06-10",

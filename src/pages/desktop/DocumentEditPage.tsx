@@ -306,7 +306,10 @@ export function DocumentEditPage() {
     setRunning("save")
     try {
       const ok = await persist()
-      if (ok) setPdfOpen(true)
+      if (ok) {
+        toast.success("Draft saved — exporting the version on screen")
+        setPdfOpen(true)
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed")
     } finally {
@@ -461,7 +464,7 @@ export function DocumentEditPage() {
               documentId={doc._id}
               open={pdfOpen}
               onOpenChange={setPdfOpen}
-              source="current"
+              version={doc.currentVersion}
             />
 
             <Button

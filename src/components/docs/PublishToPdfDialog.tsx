@@ -4,7 +4,7 @@
 // document, opens it in a new window. The user prints to PDF from there
 // (the popup has its own toolbar with Print + Close buttons).
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { FileDown, Eye, Loader2, Sparkles } from "lucide-react"
 import * as pdfjs from "pdfjs-dist"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
@@ -34,9 +34,11 @@ import {
   DEFAULT_PDF_OPTIONS,
   type LinkedLogInfo,
   type PdfExportOptions,
+  type PrintCoverSettings,
 } from "@/lib/pdf-export/buildPrintDoc"
-import { openPrintWindow } from "@/lib/pdf-export/openPrintWindow"
+import { loadPrintHtml, openPrintShell } from "@/lib/pdf-export/openPrintWindow"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -46,25 +48,21 @@ const MAX_PDF_PAGES = 20
 
 interface PublishToPdfDialogProps {
   documentId: string
+  /** The exact edition to export — what you see is what exports. */
+  version: number
   /** Optional trigger; omit when driving `open` from the parent. */
   trigger?: React.ReactNode
   /** Controlled open state (e.g. so the edit page can save first). */
   open?: boolean
   onOpenChange?: (open: boolean) => void
-  /**
-   * Which edition to export. "serving" (default) = the live/published edition
-   * readers see; "current" = the working edition — the edit page uses this so
-   * a forked draft exports the draft, not the still-live previous edition.
-   */
-  source?: "serving" | "current"
 }
 
 export function PublishToPdfDialog({
   documentId,
+  version,
   trigger,
   open: controlledOpen,
   onOpenChange,
-  source = "serving",
 }: PublishToPdfDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false)
   const open = controlledOpen ?? internalOpen
@@ -77,11 +75,10 @@ export function PublishToPdfDialog({
     open ? { id: documentId as Id<"documents"> } : "skip",
   )
   const versionResult = useQuery(
-    source === "current"
-      ? api.documents.getCurrentVersion
-      : api.documents.getServingVersion,
-    open ? { documentId: documentId as Id<"documents"> } : "skip",
+    api.documents.getVersionByNumber,
+    open ? { documentId: documentId as Id<"documents">, version } : "skip",
   )
+  const coverSettings = useQuery(api.coverSettings.get, open ? {} : "skip")
   const versionsList = useQuery(
     api.documents.listVersions,
     open ? { documentId: documentId as Id<"documents"> } : "skip",
@@ -107,6 +104,33 @@ export function PublishToPdfDialog({
       version.body_kind === "tiptap" ? extractPpeItems(version.body_json) : []
     return { doc, version, owner: null, ppeOnDoc }
   }, [docResult, versionResult])
+
+  const isLiveExport =
+    docResult?.doc.liveVersion != null && docResult.doc.liveVersion === version
+  const exportStatus = !docResult
+    ? null
+    : isLiveExport
+      ? "published"
+      : version === docResult.doc.currentVersion
+        ? docResult.doc.status
+        : "superseded"
+
+  // Seed the watermark once per dialog open: non-live editions default to
+  // "Draft"; published exports honor the configured default watermark.
+  const watermarkSeeded = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      watermarkSeeded.current = false
+      return
+    }
+    if (watermarkSeeded.current || !docResult || coverSettings === undefined)
+      return
+    const def: PdfExportOptions["watermark"] = isLiveExport
+      ? (coverSettings?.defaultWatermark ?? "controlled")
+      : "draft"
+    setOptions((o) => ({ ...o, watermark: def }))
+    watermarkSeeded.current = true
+  }, [open, docResult, coverSettings, isLiveExport])
 
   const imageIds = useMemo<Id<"images">[]>(() => {
     if (!resolved || resolved.version.body_kind !== "tiptap") return []
@@ -275,9 +299,30 @@ export function PublishToPdfDialog({
     return out
   }
 
+  // Fetch the configured logo and base64 it so the popup never races a remote
+  // image load. Falls back to the remote URL when the fetch fails.
+  async function inlineLogo(): Promise<string | null> {
+    const url = coverSettings?.logoUrl
+    if (!url) return null
+    try {
+      const res = await fetch(url)
+      if (!res.ok) return url
+      const blob = await res.blob()
+      return await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader()
+        fr.onload = () => resolve(String(fr.result))
+        fr.onerror = () => reject(fr.error)
+        fr.readAsDataURL(blob)
+      })
+    } catch {
+      return url
+    }
+  }
+
   function buildHtml(
     pdfPagesByStorageId: Record<string, string[]>,
     diagramBgDataUrls: Record<string, string>,
+    logoDataUrl: string | null,
   ): string | null {
     if (!resolved) return null
     if (resolved.version.body_kind === "pdf") {
@@ -286,6 +331,18 @@ export function PublishToPdfDialog({
       )
       return null
     }
+    const cover: PrintCoverSettings | null = coverSettings
+      ? {
+          companyName: coverSettings.companyName,
+          headerText: coverSettings.headerText,
+          footerText: coverSettings.footerText,
+          titleSize: coverSettings.titleSize,
+          logoDataUrl,
+          showPageNumbers: coverSettings.showPageNumbers,
+          confidentialityLabel: coverSettings.confidentialityLabel,
+          accentColor: coverSettings.accentColor,
+        }
+      : null
     return buildPrintDoc({
       doc: resolved.doc,
       version: resolved.version,
@@ -301,29 +358,38 @@ export function PublishToPdfDialog({
       pdfPagesByStorageId,
       logsById,
       diagramBgDataUrls,
+      cover,
     })
   }
 
   async function openExport(autoPrint: boolean) {
+    // The window must open synchronously inside the click handler — the async
+    // prep below outlives the user activation, and a window.open after it
+    // would be popup-blocked for real. Navigate the shell once prep is done.
+    const win = openPrintShell()
+    if (!win) {
+      toast.error("Couldn't open the window. Check your popup blocker.")
+      return
+    }
     setPreparing(true)
     try {
-      const [pages, bgMap] = await Promise.all([
+      const [pages, bgMap, logoDataUrl] = await Promise.all([
         rasterisePdfs(),
         inlineDiagramBackgrounds(),
+        inlineLogo(),
       ])
-      const html = buildHtml(pages, bgMap)
-      if (!html) return
+      const html = buildHtml(pages, bgMap, logoDataUrl)
+      if (!html) {
+        win.close()
+        return
+      }
       const finalHtml = autoPrint
         ? html.replace(
             "</body>",
             `<script>window.addEventListener('load', function () { setTimeout(function () { window.print() }, 350) })</script></body>`,
           )
         : html
-      const win = openPrintWindow(finalHtml)
-      if (!win) {
-        toast.error("Couldn't open the window. Check your popup blocker.")
-        return
-      }
+      loadPrintHtml(win, finalHtml)
       setOpen(false)
     } finally {
       setPreparing(false)
@@ -342,6 +408,9 @@ export function PublishToPdfDialog({
   )
   const busy =
     preparing ||
+    coverSettings === undefined ||
+    versionResult === undefined ||
+    versionResult === null ||
     (pdfStorageIds.length > 0 && pdfUrlMap === undefined) ||
     (launchLogCount > 0 && logsList === undefined)
 
@@ -352,11 +421,35 @@ export function PublishToPdfDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileDown className="h-4 w-4 text-orange-600" />
-            Publish to PDF
+            Export to PDF
           </DialogTitle>
+          {docResult && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="rounded border bg-muted/50 px-1.5 py-0.5 font-mono font-medium">
+                {docResult.doc.namingCode}
+              </span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-medium">v{version}</span>
+              {exportStatus && (
+                <>
+                  <span className="text-muted-foreground">·</span>
+                  <span
+                    className={cn(
+                      "capitalize",
+                      exportStatus === "published"
+                        ? "text-emerald-700"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {exportStatus.replace("_", " ")}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
           <DialogDescription>
-            Builds a controlled PDF from the saved version. Recurring header,
-            footer, and the controlled-copy stamp are always included.
+            Exports exactly this edition. Recurring header, footer, and the
+            controlled-copy stamp follow the PDF cover settings.
           </DialogDescription>
         </DialogHeader>
 

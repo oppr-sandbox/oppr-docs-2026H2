@@ -1,10 +1,12 @@
 import { format } from "date-fns"
+import { Link } from "wouter"
 import {
   Archive,
   Copy,
   CopyPlus,
   ExternalLink,
   FileText,
+  GitBranch,
   MoreHorizontal,
   QrCode,
   Trash2,
@@ -135,16 +137,22 @@ export function DocumentLibraryTable({
                   <TypeBadge type={doc.type} />
                 </TableCell>
                 <TableCell>
-                  <div className="flex flex-col items-start gap-1">
+                  <div className="flex items-center gap-1.5">
                     <StatusBadge
                       status={
                         hasWorkingDraft(doc) ? "published" : doc.status
                       }
                     />
                     {hasWorkingDraft(doc) && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                      <Link
+                        href={`/docs/${doc.id}?v=${doc.current_version}`}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                        title={`A v${doc.current_version} ${doc.status} is in progress — view it`}
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                      >
+                        <GitBranch className="h-2.5 w-2.5" />
                         v{doc.current_version} {doc.status}
-                      </span>
+                      </Link>
                     )}
                   </div>
                 </TableCell>

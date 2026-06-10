@@ -94,12 +94,6 @@ export function VersionHistoryDrawer({
                               Viewing
                             </Badge>
                           )}
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] uppercase tracking-wide text-muted-foreground"
-                          >
-                            {v.bodyKind}
-                          </Badge>
                         </div>
                         <div className="text-xs text-muted-foreground">
                           Published {formatDate(v.publishedAt)}

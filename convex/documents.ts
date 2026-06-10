@@ -237,6 +237,22 @@ export const getServingVersion = query({
   },
 })
 
+// Fetch one specific edition by number. The read page's version override and
+// the PDF export use this so "the version you are viewing" is exactly what
+// renders/exports.
+export const getVersionByNumber = query({
+  args: { documentId: v.id("documents"), version: v.number() },
+  handler: async (ctx, args) => {
+    await requireUser(ctx)
+    return await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.documentId).eq("version", args.version),
+      )
+      .unique()
+  },
+})
+
 export const listVersions = query({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {

@@ -34,7 +34,72 @@ export function AuthoringHardeningBatchAnalysis() {
       <SeedSection />
       <CleanupSection />
       <VerificationSection />
+      <BatchTwoSection />
     </AnalysisLayout>
+  )
+}
+
+const BATCH2: Array<[string, string]> = [
+  [
+    "Stale-tab diagnosis",
+    "Most 'missing' batch-1 changes were an already-open tab running the old bundle while Convex live-pushed the new data into it (new seed docs + logs visible, new UI not). The deployment was READY; a hard refresh resolves it. Verified by fetching the live index.html (asset hash matches the new build).",
+  ],
+  [
+    "Version-aware reading + export",
+    "Real bug: the read page's 'View this version' set state that nothing consumed — the body always rendered the serving version and the PDF dialog exported it too. Now documents.getVersionByNumber feeds both: the version override actually swaps the rendered body, /docs/:id?v=N deep-links an edition, and the PDF button exports exactly the version on screen. With a fork in progress the banner offers View v2 draft / View live v1; the draft banner states that the PDF exports the draft.",
+  ],
+  [
+    "PDF dialog reframed",
+    "'Publish to PDF' renamed — button is PDF, the dialog is an export of the viewed version with code · vN · status shown, watermark defaulting to Draft for unpublished editions. Edit page toasts 'Draft saved' before opening it. False 'popup blocker' toast fixed (the window opened but the null-check misfired).",
+  ],
+  [
+    "Cover settings",
+    "New single-row coverSettings table + 'PDF cover' tab on /templates: company name, header/footer text, logo (image library), title size, page numbers, confidentiality label, default watermark, accent color. Every export consumes the saved setup — no per-document chooser.",
+  ],
+  [
+    "Library fork chip",
+    "Status column is one line: StatusBadge + amber GitBranch chip (v2 draft) linking straight to /docs/:id?v=2.",
+  ],
+  [
+    "Modal consistency",
+    "Native confirm() removed from TemplatesPage (delete template) and SettingsPage (re-embed) — both now shadcn AlertDialogs. The create-new-version dialog gained a static-vs-dynamic breakdown: what carries over editable (body, derived links, roles) vs what never changes (naming code, filing, the live version's history).",
+  ],
+  [
+    "Editor polish",
+    "Toolbar safety palette now uses the same icon+label list form as the on-block CHANGE TYPE menu (grouped Danger/Warning/Notice/Tip). Version-history drawer dropped the TIPTAP chip. Diagram builder: Import template got an icon; Background image moved out of the dropdown into the palette rail.",
+  ],
+]
+
+function BatchTwoSection() {
+  return (
+    <Section
+      title="Batch 2 — same-day follow-up (review round)"
+      description="The founder re-reviewed on the live deployment; one real regression-class bug (version viewing), several reframes, and one new subsystem (cover settings)."
+    >
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-52">Item</TableHead>
+            <TableHead>What changed</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {BATCH2.map(([item, change]) => (
+            <TableRow key={item}>
+              <TableCell className="align-top text-xs font-medium">
+                <span className="inline-flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                  {item}
+                </span>
+              </TableCell>
+              <TableCell className="align-top text-xs text-muted-foreground">
+                {change}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Section>
   )
 }
 

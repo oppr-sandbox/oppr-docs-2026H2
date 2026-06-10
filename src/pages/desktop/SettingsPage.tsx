@@ -7,6 +7,16 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { useAction, useQuery } from "convex/react"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { api } from "../../../convex/_generated/api"
@@ -17,7 +27,7 @@ import {
 } from "../../../convex/ai/constants"
 import { toast } from "sonner"
 import { Link } from "wouter"
-import { Hash, Loader2, Settings as SettingsIcon } from "lucide-react"
+import { Hash, Loader2, RefreshCw, Settings as SettingsIcon } from "lucide-react"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 
@@ -29,6 +39,7 @@ export function SettingsPage() {
   const reembedAllAction = useAction(api.ai.embed.reembedAll)
 
   const [embedding, setEmbedding] = useState(false)
+  const [reembedDialogOpen, setReembedDialogOpen] = useState(false)
 
   async function handleEmbed(reembed: boolean) {
     setEmbedding(true)
@@ -156,19 +167,40 @@ export function SettingsPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => {
-                  if (
-                    !confirm(
-                      "Clear every chunk embedding and re-embed from scratch? Takes ~30 seconds.",
-                    )
-                  )
-                    return
-                  void handleEmbed(true)
-                }}
+                onClick={() => setReembedDialogOpen(true)}
                 disabled={embedding}
               >
                 Re-embed all
               </Button>
+              <AlertDialog
+                open={reembedDialogOpen}
+                onOpenChange={setReembedDialogOpen}
+              >
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                      <RefreshCw className="h-5 w-5" />
+                    </div>
+                    <AlertDialogTitle className="text-center">
+                      Re-embed all chunks?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="text-center">
+                      Every existing chunk embedding will be cleared and rebuilt
+                      from scratch. Ask IDA answers may be degraded until the
+                      re-embed finishes — takes roughly 30 seconds.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleEmbed(true)}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Clear and re-embed
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </CardContent>
         </Card>
