@@ -147,8 +147,11 @@ export default defineSchema({
     .index("by_documentId_and_assetId", ["documentId", "assetId"]),
 
   logs: defineTable({
+    // Placeholder identity for the LOGS module, e.g. AMS-OPS-LOG-0001.
+    code: v.optional(v.string()),
     name: v.string(),
     type: v.string(),
+    description: v.optional(v.union(v.string(), v.null())),
   }),
 
   documentLogRefs: defineTable({

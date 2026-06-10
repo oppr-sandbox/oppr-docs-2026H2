@@ -41,6 +41,7 @@ import {
 } from "@/components/docs/chunking"
 import { walkBodyAssetIds } from "@/lib/bodyAssets"
 import { walkBodyRefs } from "@/lib/bodyRefs"
+import { walkBodyLogs } from "@/lib/bodyLogs"
 import type { DocumentType } from "@/types"
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -74,6 +75,7 @@ export function DocumentNewPage() {
   )
   const assetsRaw = useQuery(api.assets.list)
   const docsRaw = useQuery(api.documents.list, {})
+  const logsRaw = useQuery(api.logs.list)
 
   const [meta, setMeta] = useState<MetadataValue>(() => defaultMetadata())
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -116,6 +118,19 @@ export function DocumentNewPage() {
       }
     })
   }, [body, docsRaw])
+
+  const derivedLogs = useMemo(() => {
+    const logs = walkBodyLogs(body)
+    const byId = new Map((logsRaw ?? []).map((l) => [l._id as string, l]))
+    return logs.map((r) => {
+      const l = byId.get(r.logId)
+      return {
+        id: r.logId,
+        code: l?.code ?? r.code,
+        name: l?.name ?? r.label ?? "(missing log)",
+      }
+    })
+  }, [body, logsRaw])
 
   async function handlePdfFile(file: File) {
     setPdfFile(file)
@@ -359,6 +374,7 @@ export function DocumentNewPage() {
             errors={errors}
             derivedAssets={derivedAssets}
             derivedRefs={derivedRefs}
+            derivedLogs={derivedLogs}
           />
         </div>
       </div>

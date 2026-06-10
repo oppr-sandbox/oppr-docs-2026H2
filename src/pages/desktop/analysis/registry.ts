@@ -23,6 +23,7 @@ import { ImportRedesignAnalysis } from "./ImportRedesignAnalysis"
 import { DiagramBuilderAnalysis } from "./DiagramBuilderAnalysis"
 import { DiagramBuilderRebuildAnalysis } from "./DiagramBuilderRebuildAnalysis"
 import { DocumentVersioningAnalysis } from "./DocumentVersioningAnalysis"
+import { AuthoringHardeningBatchAnalysis } from "./AuthoringHardeningBatchAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -45,6 +46,16 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "authoring-hardening-batch",
+    title: "Authoring hardening — naming lifecycle, pills, images, PDF, seed",
+    area: "Editor",
+    status: "done",
+    updatedAt: "2026-06-10",
+    summary:
+      "Nine workstreams from a founder screenshot review, shipped in one pass. Three root-cause bugs: native <img> drag beat ProseMirror so drops duplicated images at 100% width (fixed with draggable=false + data-drag-handle); legacy docs store filing only inside the naming code so saves failed 'Location is required' and the dropdowns even allowed mismatched values (fixed by making the code the parsed source of truth — backfill on hydrate+save, selects locked once a code exists, documents.refile mints a new document with a new code and optionally archives the old); diagram backgrounds missed the PDF because the print window fires before remote images load (fixed by inlining as data URLs). Plus: image library group-by-document + status + diagrams tab, importer figures at 35%, launch-log pills matching the chip system with codes (AMS-OPS-LOG-0001…0005) and a Linked-logs sidebar card, toolbar shortcuts hover card, PDF front-matter 'Document overview' (linked machines always on, linked logs new) with a compact one-page title, and seedMinimal: a wiped DB reseeded to 2 docs / 2 assets / 5 logs / 2 images.",
+    Component: AuthoringHardeningBatchAnalysis,
+  },
   {
     slug: "document-versioning",
     title: "Document versioning & library lifecycle",

@@ -31,8 +31,11 @@ import {
   type MetadataValue,
 } from "@/components/docs/MetadataPanel"
 import { chunksFromTipTap } from "@/components/docs/chunking"
+import { RefileDocumentDialog } from "@/components/docs/RefileDocumentDialog"
+import { parseNamingCode } from "@/lib/namingCode"
 import { walkBodyAssetIds } from "@/lib/bodyAssets"
 import { walkBodyRefs } from "@/lib/bodyRefs"
+import { walkBodyLogs } from "@/lib/bodyLogs"
 import { cn } from "@/lib/utils"
 import type { DocumentType } from "@/types"
 
@@ -86,6 +89,7 @@ export function DocumentEditPage() {
   )
   const assetsRaw = useQuery(api.assets.list)
   const docsRaw = useQuery(api.documents.list, {})
+  const logsRaw = useQuery(api.logs.list)
   const ready = docResult !== undefined
 
   const [meta, setMeta] = useState<MetadataValue | null>(null)
@@ -95,6 +99,7 @@ export function DocumentEditPage() {
   const [bodyHydrated, setBodyHydrated] = useState(false)
   const [metaVisible, setMetaVisible] = useState<boolean>(() => readMetaVisible())
   const [pdfOpen, setPdfOpen] = useState(false)
+  const [refileOpen, setRefileOpen] = useState(false)
   // Recovered local-scratch body from a previous session (autosave), pending
   // the user's restore / dismiss choice.
   const [recovered, setRecovered] = useState<{ body: unknown; at: number } | null>(
@@ -133,15 +138,18 @@ export function DocumentEditPage() {
     }
   }, [docResult, setLocation])
 
-  // Hydrate metadata from the loaded doc once.
+  // Hydrate metadata from the loaded doc once. Older documents predate the
+  // location/discipline fields — derive them from the naming code so the
+  // panel is never half-empty and saves don't fail validation.
   useEffect(() => {
     if (!docResult || meta) return
     const d = docResult.doc
+    const parsed = d.namingCode ? parseNamingCode(d.namingCode) : null
     setMeta({
       title: d.title,
       type: d.type as DocumentType,
-      location: d.location ?? "",
-      discipline: d.discipline ?? "",
+      location: d.location ?? parsed?.location ?? "",
+      discipline: d.discipline ?? parsed?.discipline ?? "",
       reviewerId: d.reviewerId ?? "",
       approverId: d.approverId ?? "",
     })
@@ -231,6 +239,19 @@ export function DocumentEditPage() {
       }
     })
   }, [body, docsRaw])
+
+  const derivedLogs = useMemo(() => {
+    const logs = walkBodyLogs(body)
+    const byId = new Map((logsRaw ?? []).map((l) => [l._id as string, l]))
+    return logs.map((r) => {
+      const l = byId.get(r.logId)
+      return {
+        id: r.logId,
+        code: l?.code ?? r.code,
+        name: l?.name ?? r.label ?? "(missing log)",
+      }
+    })
+  }, [body, logsRaw])
 
   // Persist current content + roles as a new version. Returns false if the
   // metadata is invalid.
@@ -440,6 +461,7 @@ export function DocumentEditPage() {
               documentId={doc._id}
               open={pdfOpen}
               onOpenChange={setPdfOpen}
+              source="current"
             />
 
             <Button
@@ -546,12 +568,28 @@ export function DocumentEditPage() {
               onChange={setMeta}
               errors={errors}
               fixedNamingCode={namingCode || undefined}
+              onRequestRefile={
+                namingCode ? () => setRefileOpen(true) : undefined
+              }
               derivedAssets={derivedAssets}
               derivedRefs={derivedRefs}
+              derivedLogs={derivedLogs}
             />
           </div>
         )}
       </div>
+
+      {namingCode && (
+        <RefileDocumentDialog
+          open={refileOpen}
+          onOpenChange={setRefileOpen}
+          docId={doc._id}
+          currentCode={namingCode}
+          currentLocation={meta.location}
+          currentDiscipline={meta.discipline}
+          currentType={meta.type}
+        />
+      )}
     </div>
   )
 }

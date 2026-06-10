@@ -3,7 +3,7 @@ import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import { Doc, Id } from "./_generated/dataModel"
 import { requireUser, requireUserId } from "./lib/auth"
-import { allocateNamingCode } from "./naming"
+import { allocateNamingCode, parseNamingCode } from "./naming"
 import { walkBodyAssetIds } from "./lib/assetWalker"
 
 // Recompute the documentAssets links for a document from the asset pills present
@@ -403,14 +403,28 @@ export const saveContent = mutation({
 
     const now = Date.now()
 
+    // Once a naming code exists, the type is part of it and can't drift; the
+    // refile mutation is the only way to change filing (it mints a new doc).
+    const lockedType = doc.namingCode ? doc.type : args.type
+
     const patch: Partial<Doc<"documents">> = {
       title: args.title.trim(),
-      type: args.type,
+      type: lockedType,
       updatedAt: now,
     }
     if (args.reviewerId !== undefined) patch.reviewerId = args.reviewerId
     if (args.approverId !== undefined) patch.approverId = args.approverId
     if (!doc.authorId) patch.authorId = userId
+
+    // Backfill filing for documents created before location/discipline were
+    // stored — the naming code is the source of truth.
+    if (doc.namingCode && (!doc.location || !doc.discipline)) {
+      const parsed = parseNamingCode(doc.namingCode)
+      if (parsed) {
+        patch.location = doc.location ?? parsed.location
+        patch.discipline = doc.discipline ?? parsed.discipline
+      }
+    }
 
     // A published edition is locked. Editing it must fork a new draft edition
     // via createNewVersion, so v1 stays live until v2 completes the cycle.
@@ -669,6 +683,118 @@ export const createNewVersion = mutation({
     })
 
     return { version: newVersion }
+  },
+})
+
+// Change a document's filing (location/discipline/type). The naming code is
+// immutable, so this mints a NEW document with a freshly allocated code,
+// copying the current content and roles, and optionally archives the old one.
+export const refile = mutation({
+  args: {
+    id: v.id("documents"),
+    location: v.string(),
+    discipline: v.string(),
+    type: docTypeArg,
+    archiveOld: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx)
+    const doc = await ctx.db.get(args.id)
+    if (!doc) throw new Error("Document not found")
+    const location = args.location.trim()
+    const discipline = args.discipline.trim()
+    if (!location || !discipline)
+      throw new Error("Location and discipline are required")
+
+    const parsed = doc.namingCode ? parseNamingCode(doc.namingCode) : null
+    const currentLocation = doc.location ?? parsed?.location ?? ""
+    const currentDiscipline = doc.discipline ?? parsed?.discipline ?? ""
+    if (
+      location === currentLocation &&
+      discipline === currentDiscipline &&
+      args.type === doc.type
+    ) {
+      throw new Error(
+        "That is the document's current filing — pick a different location, discipline, or type.",
+      )
+    }
+
+    const versionRow = await ctx.db
+      .query("documentVersions")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id).eq("version", doc.currentVersion),
+      )
+      .unique()
+
+    const namingCode = await allocateNamingCode(
+      ctx,
+      location,
+      discipline,
+      args.type,
+    )
+    const now = Date.now()
+
+    const newId = await ctx.db.insert("documents", {
+      namingCode,
+      location,
+      discipline,
+      title: doc.title,
+      type: args.type,
+      status: "draft",
+      currentVersion: 1,
+      ownerId: doc.ownerId ?? userId,
+      authorId: doc.authorId ?? userId,
+      reviewerId: doc.reviewerId ?? null,
+      approverId: doc.approverId ?? null,
+      tags: doc.tags,
+      updatedAt: now,
+    })
+
+    await ctx.db.insert("documentVersions", {
+      documentId: newId,
+      version: 1,
+      bodyKind: versionRow?.bodyKind ?? "tiptap",
+      bodyJson: versionRow?.bodyJson ?? null,
+      pdfStorageId: versionRow?.pdfStorageId ?? null,
+      publishedAt: now,
+      signoffs: [{ role: "author", userId, at: now }],
+    })
+
+    const chunks = await ctx.db
+      .query("chunks")
+      .withIndex("by_documentId_and_version", (q) =>
+        q.eq("documentId", args.id).eq("version", doc.currentVersion),
+      )
+      .collect()
+    for (const c of chunks) {
+      await ctx.db.insert("chunks", {
+        documentId: newId,
+        version: 1,
+        seq: c.seq,
+        text: c.text,
+        pageOrSection: c.pageOrSection,
+        embedding: null,
+        embeddingModel: null,
+      })
+    }
+
+    await syncDocumentAssetsFromBody(ctx, newId, versionRow?.bodyJson ?? null)
+
+    await ctx.runMutation(internal.images.recomputeUsagesForVersion, {
+      documentId: newId,
+      documentVersion: 1,
+      body: versionRow?.bodyJson ?? null,
+    })
+
+    await ctx.scheduler.runAfter(0, internal.ai.embed.embedMissingInternal, {
+      documentId: newId,
+    })
+
+    if (args.archiveOld) {
+      await ctx.db.patch(args.id, { status: "archived", updatedAt: now })
+    }
+
+    return { id: newId, namingCode }
   },
 })
 

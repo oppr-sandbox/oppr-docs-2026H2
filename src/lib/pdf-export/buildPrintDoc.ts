@@ -15,7 +15,6 @@ export interface PdfExportOptions {
   revisionBlock: boolean
   recurringHeader: boolean
   recurringFooter: boolean
-  assetList: boolean
   referencesBlock: boolean
   watermark: "none" | "controlled" | "draft" | "review"
 }
@@ -25,7 +24,6 @@ export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   revisionBlock: true,
   recurringHeader: true,
   recurringFooter: true,
-  assetList: false,
   referencesBlock: true,
   watermark: "controlled",
 }
@@ -33,6 +31,11 @@ export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
 export interface RevisionEntry {
   version: number
   publishedAt: number
+}
+
+export interface LinkedLogInfo {
+  name: string
+  code?: string | null
 }
 
 interface BuildArgs {
@@ -50,6 +53,10 @@ interface BuildArgs {
   refTitleById?: Record<string, string>
   /** Resolve pdfAttachment storageIds → rasterised page image data URLs. */
   pdfPagesByStorageId?: Record<string, string[]>
+  /** Resolve launchLog logIds → code/name for the linked-logs table. */
+  logsById?: Record<string, LinkedLogInfo>
+  /** Diagram background url → fetched data URL, so the export is self-contained. */
+  diagramBgDataUrls?: Record<string, string>
 }
 
 const TYPE_LABEL: Record<Doc["type"], string> = {
@@ -71,8 +78,11 @@ export function buildPrintDoc(args: BuildArgs): string {
     versions,
     refTitleById,
     pdfPagesByStorageId,
+    logsById,
+    diagramBgDataUrls,
   } = args
   CURRENT_PDF_PAGES = pdfPagesByStorageId
+  CURRENT_DIAGRAM_BG = diagramBgDataUrls
   const effective = formatDate(version.published_at)
   const reviewBy = addOneYear(version.published_at)
   // The PDF reflects the live (published) edition. When a newer edition is being
@@ -93,57 +103,45 @@ export function buildPrintDoc(args: BuildArgs): string {
 
   const pages: string[] = []
 
-  // Revision history goes on the title page (in the empty band below the
-  // metadata grid) when both the title page and revision block are enabled.
-  // If there's no title page, render it as the first body section instead.
-  // When a title page is present, the revision history, linked-machine list,
-  // and references table all live ON the title page (controlled-document
-  // convention) rather than trailing the body.
-  const onTitle = options.titlePage
-  const titleHasRevision = onTitle && options.revisionBlock
-  const refs = options.referencesBlock
-    ? collectReferences(version.body_json)
-    : []
-  const titleAssets = onTitle && options.assetList ? assets : []
-  const titleRefs = onTitle ? refs : []
-
-  if (onTitle) {
+  if (options.titlePage) {
     pages.push(
       renderTitlePage({
         doc,
         owner,
         effective,
         reviewBy,
-        assets,
         ppeOnDoc,
-        watermarkText,
         displayVersion,
         displayStatus,
-        version: titleHasRevision ? version : null,
-        versions,
-        assetList: titleAssets,
-        refs: titleRefs,
-        refTitleById,
       }),
     )
   }
 
-  const bodySections: string[] = []
-  if (options.revisionBlock && !titleHasRevision) {
-    bodySections.push(
+  // Front-matter summary tables: a "Document overview" page between the title
+  // page and the body. Linked machines and linked logs are always included
+  // (when present); revision history and references follow the toggles.
+  const refs = options.referencesBlock
+    ? collectReferences(version.body_json)
+    : []
+  const launchLogs = collectLaunchLogs(version.body_json)
+  const front: string[] = []
+  if (options.revisionBlock) {
+    front.push(
       renderRevisionBlock({ displayVersion, displayStatus, version, versions }),
     )
   }
-  if (!onTitle && options.assetList && assets.length > 0) {
-    bodySections.push(renderAssetList(assets))
+  if (assets.length > 0) front.push(renderAssetList(assets))
+  if (launchLogs.length > 0) front.push(renderLinkedLogs(launchLogs, logsById))
+  if (refs.length > 0) front.push(renderReferences(refs, refTitleById))
+  if (front.length > 0) {
+    pages.push(
+      `<section class="doc-page front-matter"><h2 class="fm-title">Document overview</h2>${front.join("")}</section>`,
+    )
   }
-  bodySections.push(
-    `<div class="doc-body">${renderTipTapDoc(version.body_json, imageUrlMap)}</div>`,
+
+  pages.push(
+    `<section class="doc-page"><div class="doc-body">${renderTipTapDoc(version.body_json, imageUrlMap)}</div></section>`,
   )
-  if (!onTitle && refs.length > 0) {
-    bodySections.push(renderReferences(refs, refTitleById))
-  }
-  pages.push(`<section class="doc-page">${bodySections.join("")}</section>`)
 
   const watermarkLayer = watermarkText
     ? `<div class="watermark" aria-hidden="true">${escapeHtml(watermarkText)}</div>`
@@ -173,21 +171,17 @@ ${pages.join("\n")}
 // Title page
 // ---------------------------------------------------------------------------
 
+// Compact, always-one-page cover: type, title, a prominent doc-id badge,
+// version + status, metadata grid, PPE row. The summary tables live on the
+// following "Document overview" page.
 function renderTitlePage(args: {
   doc: Doc
   owner: User | null
   effective: string
   reviewBy: string
-  assets: Asset[]
   ppeOnDoc: PpeItem[]
-  watermarkText: string | null
   displayVersion: number
   displayStatus: Doc["status"]
-  version: DocVersion | null
-  versions?: RevisionEntry[]
-  assetList: Asset[]
-  refs: RefEntry[]
-  refTitleById?: Record<string, string>
 }): string {
   const {
     doc,
@@ -197,26 +191,19 @@ function renderTitlePage(args: {
     ppeOnDoc,
     displayVersion,
     displayStatus,
-    version,
-    versions,
-    assetList,
-    refs,
-    refTitleById,
   } = args
   const ownerLabel = owner ? `${escapeHtml(owner.name)} (${escapeHtml(owner.role)})` : "—"
   const ppe = ppeOnDoc
     .map((p) => `<span>${escapeHtml(PPE_META[p]?.label ?? p)}</span>`)
     .join("")
-  // Everything below the metadata grid is compiled together so the front page
-  // carries the full controlled-document context: revision history, then the
-  // linked machines and references in the same table format.
   return `
 <section class="doc-page title-page">
   <div class="title-eyebrow">Oppr DOCS · Controlled document</div>
   <div class="title-kicker">${escapeHtml(TYPE_LABEL[doc.type])}</div>
   <div class="title-main">
     <h1>${escapeHtml(doc.title)}</h1>
-    <div class="title-code">${escapeHtml(doc.naming_code)} · v${displayVersion} · ${escapeHtml(displayStatus)}</div>
+    <div class="title-code-badge">${escapeHtml(doc.naming_code)}</div>
+    <div class="title-edition">Version ${displayVersion} · ${escapeHtml(displayStatus)}</div>
   </div>
   <div class="title-meta-grid">
     <div><div class="k">Owner</div><div class="v">${ownerLabel}</div></div>
@@ -226,10 +213,7 @@ function renderTitlePage(args: {
     <div><div class="k">Type</div><div class="v">${escapeHtml(TYPE_LABEL[doc.type])}</div></div>
     <div><div class="k">Status</div><div class="v">${escapeHtml(displayStatus)}</div></div>
   </div>
-  ${ppe ? `<div class="title-ppe">${ppe}</div>` : ""}
-  ${version ? renderRevisionBlock({ displayVersion, displayStatus, version, versions }) : ""}
-  ${assetList.length > 0 ? renderAssetList(assetList) : ""}
-  ${refs.length > 0 ? renderReferences(refs, refTitleById) : ""}
+  ${ppe ? `<div class="title-ppe"><div class="title-ppe-label">Required PPE</div><div class="title-ppe-items">${ppe}</div></div>` : ""}
   <div class="title-controlled">
     <div class="stamp">Controlled copy</div>
     <div>Print date ${escapeHtml(formatToday())}. Verify the latest revision in Oppr DOCS before use. Uncontrolled when printed and not stamped or registered.</div>
@@ -271,8 +255,8 @@ function renderRevisionBlock(args: {
     })
     .join("")
   return `
-<section class="revision-block">
-  <h2>Revision history</h2>
+<section class="fm-block fm-slate revision-block">
+  <div class="fm-head">Revision history</div>
   <table>
     <thead>
       <tr><th>Rev</th><th>Date</th><th>Status</th><th>Summary</th></tr>
@@ -325,8 +309,8 @@ function renderReferences(
   titleById?: Record<string, string>,
 ): string {
   return `
-<section class="reference-block">
-  <h2>References &amp; related documents</h2>
+<section class="fm-block fm-indigo reference-block">
+  <div class="fm-head">References &amp; related documents</div>
   <table>
     <thead>
       <tr><th>Code</th><th>Title</th></tr>
@@ -358,8 +342,8 @@ function deriveTitle(label: string, code: string): string {
 
 function renderAssetList(assets: Asset[]): string {
   return `
-<section class="asset-list-block">
-  <h2>Linked machines</h2>
+<section class="fm-block fm-emerald asset-list-block">
+  <div class="fm-head">Linked machines</div>
   <table>
     <thead>
       <tr><th>Code</th><th>Machine</th></tr>
@@ -370,6 +354,67 @@ function renderAssetList(assets: Asset[]): string {
           (a) =>
             `<tr><td><code>${escapeHtml(a.code)}</code></td><td>${escapeHtml(a.name)}${a.location ? ` <span style="color:#9ca3af">(${escapeHtml(a.location)})</span>` : ""}</td></tr>`,
         )
+        .join("")}
+    </tbody>
+  </table>
+</section>`
+}
+
+// ---------------------------------------------------------------------------
+// Linked logs block (auto-generated from launchLog nodes in the body)
+// ---------------------------------------------------------------------------
+
+interface LaunchLogEntry {
+  logId: string
+  label: string
+}
+
+function collectLaunchLogs(body: unknown): LaunchLogEntry[] {
+  const seen = new Set<string>()
+  const out: LaunchLogEntry[] = []
+  const visit = (n: unknown) => {
+    if (!n || typeof n !== "object") return
+    const node = n as {
+      type?: string
+      attrs?: Record<string, unknown>
+      content?: unknown[]
+    }
+    if (node.type === "launchLog") {
+      const logId = String(node.attrs?.logId ?? "")
+      const label = String(node.attrs?.label ?? "")
+      const key = logId || label
+      if (key && !seen.has(key)) {
+        seen.add(key)
+        out.push({ logId, label })
+      }
+    }
+    if (Array.isArray(node.content)) node.content.forEach(visit)
+  }
+  visit(body)
+  return out
+}
+
+// Codes come from the logs table when resolvable; the node's label is the
+// fallback so the table still renders for stale/unseeded logIds.
+function renderLinkedLogs(
+  entries: LaunchLogEntry[],
+  logsById?: Record<string, LinkedLogInfo>,
+): string {
+  return `
+<section class="fm-block fm-sky log-list-block">
+  <div class="fm-head">Linked logs</div>
+  <table>
+    <thead>
+      <tr><th>Code</th><th>Log</th></tr>
+    </thead>
+    <tbody>
+      ${entries
+        .map((e) => {
+          const info = e.logId ? logsById?.[e.logId] : undefined
+          const code = info?.code ?? null
+          const name = info?.name || e.label || "—"
+          return `<tr><td>${code ? `<code>${escapeHtml(code)}</code>` : "—"}</td><td>${escapeHtml(name)}</td></tr>`
+        })
         .join("")}
     </tbody>
   </table>
@@ -394,6 +439,11 @@ interface TipTapNode {
 let CURRENT_IMAGE_URL_MAP: Record<string, string | null> | undefined
 // Rasterised PDF pages (data URLs) keyed by storageId, for pdfAttachment nodes.
 let CURRENT_PDF_PAGES: Record<string, string[]> | undefined
+// Diagram background images: original URL → fetched data URL. Backgrounds are
+// stored as remote storage URLs inside the cached diagram SVG; the print popup
+// auto-prints ~350 ms after load, which races remote image loads, so the caller
+// pre-fetches them and we substitute self-contained data URLs here.
+let CURRENT_DIAGRAM_BG: Record<string, string> | undefined
 
 function renderTipTapDoc(
   json: unknown,
@@ -559,7 +609,7 @@ function renderPpe(node: TipTapNode): string {
     .filter(Boolean) as PpeItem[]
   if (items.length === 0) return ""
   return `<div data-ppe-block>
-  <div class="label">Personal protective equipment</div>
+  <div class="label">Required PPE</div>
   <div class="items">${items
     .map((p) => `<span>${escapeHtml(PPE_META[p]?.label ?? p)}</span>`)
     .join("")}</div>
@@ -567,8 +617,17 @@ function renderPpe(node: TipTapNode): string {
 }
 
 function renderDiagram(node: TipTapNode): string {
-  const svg = String(node.attrs?.svg ?? "")
+  let svg = String(node.attrs?.svg ?? "")
   const caption = String(node.attrs?.caption ?? "")
+  if (CURRENT_DIAGRAM_BG) {
+    // The svg caches the background as <image href="…"> with the URL
+    // XML-escaped; swap both escaped and raw forms for the inlined data URL.
+    for (const [orig, dataUrl] of Object.entries(CURRENT_DIAGRAM_BG)) {
+      if (!orig || !dataUrl) continue
+      svg = svg.split(escapeAttr(orig)).join(dataUrl)
+      svg = svg.split(orig).join(dataUrl)
+    }
+  }
   return `<figure data-diagram-block>
   ${svg}
   ${caption ? `<figcaption class="caption">${escapeHtml(caption)}</figcaption>` : ""}

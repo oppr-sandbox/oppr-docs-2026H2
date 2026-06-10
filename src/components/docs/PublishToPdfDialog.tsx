@@ -32,6 +32,7 @@ import { extractPpeItems } from "@/components/docs/DocumentHero"
 import {
   buildPrintDoc,
   DEFAULT_PDF_OPTIONS,
+  type LinkedLogInfo,
   type PdfExportOptions,
 } from "@/lib/pdf-export/buildPrintDoc"
 import { openPrintWindow } from "@/lib/pdf-export/openPrintWindow"
@@ -50,6 +51,12 @@ interface PublishToPdfDialogProps {
   /** Controlled open state (e.g. so the edit page can save first). */
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /**
+   * Which edition to export. "serving" (default) = the live/published edition
+   * readers see; "current" = the working edition — the edit page uses this so
+   * a forked draft exports the draft, not the still-live previous edition.
+   */
+  source?: "serving" | "current"
 }
 
 export function PublishToPdfDialog({
@@ -57,6 +64,7 @@ export function PublishToPdfDialog({
   trigger,
   open: controlledOpen,
   onOpenChange,
+  source = "serving",
 }: PublishToPdfDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false)
   const open = controlledOpen ?? internalOpen
@@ -69,7 +77,9 @@ export function PublishToPdfDialog({
     open ? { id: documentId as Id<"documents"> } : "skip",
   )
   const versionResult = useQuery(
-    api.documents.getServingVersion,
+    source === "current"
+      ? api.documents.getCurrentVersion
+      : api.documents.getServingVersion,
     open ? { documentId: documentId as Id<"documents"> } : "skip",
   )
   const versionsList = useQuery(
@@ -140,6 +150,100 @@ export function PublishToPdfDialog({
     open && pdfStorageIds.length > 0 ? { ids: pdfStorageIds } : "skip",
   )
 
+  // launchLog nodes in the body drive the linked-logs overview table.
+  const launchLogCount = useMemo(() => {
+    if (!resolved || resolved.version.body_kind !== "tiptap") return 0
+    let n = 0
+    const visit = (x: unknown) => {
+      if (!x || typeof x !== "object") return
+      const node = x as { type?: string; content?: unknown[] }
+      if (node.type === "launchLog") n += 1
+      if (Array.isArray(node.content)) node.content.forEach(visit)
+    }
+    visit(resolved.version.body_json)
+    return n
+  }, [resolved])
+
+  const logsList = useQuery(
+    api.logs.list,
+    open && launchLogCount > 0 ? {} : "skip",
+  )
+  const logsById = useMemo(() => {
+    const map: Record<string, LinkedLogInfo> = {}
+    for (const l of logsList ?? []) {
+      // `code` is a recent addition to the logs table; tolerate rows without it.
+      map[l._id] = {
+        name: l.name,
+        code: (l as { code?: string | null }).code ?? null,
+      }
+    }
+    return map
+  }, [logsList])
+
+  // Diagram background images live inside the cached SVG as remote storage
+  // URLs. Collect them (from the structured model when present, else from the
+  // svg markup) so they can be inlined as data URLs before the window opens.
+  const diagramBgUrls = useMemo<string[]>(() => {
+    if (!resolved || resolved.version.body_kind !== "tiptap") return []
+    const urls = new Set<string>()
+    const addIfRemote = (u: unknown) => {
+      if (typeof u === "string" && /^https?:\/\//.test(u)) urls.add(u)
+    }
+    const visit = (x: unknown) => {
+      if (!x || typeof x !== "object") return
+      const node = x as {
+        type?: string
+        attrs?: Record<string, unknown>
+        content?: unknown[]
+      }
+      if (node.type === "diagram" && node.attrs) {
+        let model = node.attrs.model
+        if (typeof model === "string") {
+          try {
+            model = JSON.parse(model)
+          } catch {
+            model = null
+          }
+        }
+        const bg = (model as { background?: { url?: unknown } | null } | null)
+          ?.background
+        addIfRemote(bg?.url)
+        const svg = String(node.attrs.svg ?? "")
+        for (const m of svg.matchAll(/<image[^>]*\shref="([^"]+)"/g)) {
+          addIfRemote(m[1].replace(/&amp;/g, "&").replace(/&quot;/g, '"'))
+        }
+      }
+      if (Array.isArray(node.content)) node.content.forEach(visit)
+    }
+    visit(resolved.version.body_json)
+    return Array.from(urls)
+  }, [resolved])
+
+  // Fetch each background and base64 it. The print popup auto-prints shortly
+  // after load, which races remote image loads — inlining makes the export
+  // self-contained. Failures fall back to the original remote URL.
+  async function inlineDiagramBackgrounds(): Promise<Record<string, string>> {
+    const out: Record<string, string> = {}
+    await Promise.all(
+      diagramBgUrls.map(async (url) => {
+        try {
+          const res = await fetch(url)
+          if (!res.ok) return
+          const blob = await res.blob()
+          out[url] = await new Promise<string>((resolve, reject) => {
+            const fr = new FileReader()
+            fr.onload = () => resolve(String(fr.result))
+            fr.onerror = () => reject(fr.error)
+            fr.readAsDataURL(blob)
+          })
+        } catch {
+          // keep the remote URL in the svg
+        }
+      }),
+    )
+    return out
+  }
+
   // Rasterise every embedded PDF's pages into data URLs so they render in the
   // export. Page-capped; failures fall back to the attachment note.
   async function rasterisePdfs(): Promise<Record<string, string[]>> {
@@ -171,7 +275,10 @@ export function PublishToPdfDialog({
     return out
   }
 
-  function buildHtml(pdfPagesByStorageId: Record<string, string[]>): string | null {
+  function buildHtml(
+    pdfPagesByStorageId: Record<string, string[]>,
+    diagramBgDataUrls: Record<string, string>,
+  ): string | null {
     if (!resolved) return null
     if (resolved.version.body_kind === "pdf") {
       toast.error(
@@ -192,14 +299,19 @@ export function PublishToPdfDialog({
         : undefined,
       refTitleById,
       pdfPagesByStorageId,
+      logsById,
+      diagramBgDataUrls,
     })
   }
 
   async function openExport(autoPrint: boolean) {
     setPreparing(true)
     try {
-      const pages = await rasterisePdfs()
-      const html = buildHtml(pages)
+      const [pages, bgMap] = await Promise.all([
+        rasterisePdfs(),
+        inlineDiagramBackgrounds(),
+      ])
+      const html = buildHtml(pages, bgMap)
       if (!html) return
       const finalHtml = autoPrint
         ? html.replace(
@@ -218,8 +330,20 @@ export function PublishToPdfDialog({
     }
   }
 
-  const estimatedPages = estimatePageCount(resolved?.version.body_json, options)
-  const busy = preparing || (pdfStorageIds.length > 0 && pdfUrlMap === undefined)
+  const hasFrontMatter =
+    options.revisionBlock ||
+    options.referencesBlock ||
+    launchLogCount > 0 ||
+    (resolved?.doc.assets.length ?? 0) > 0
+  const estimatedPages = estimatePageCount(
+    resolved?.version.body_json,
+    options,
+    hasFrontMatter,
+  )
+  const busy =
+    preparing ||
+    (pdfStorageIds.length > 0 && pdfUrlMap === undefined) ||
+    (launchLogCount > 0 && logsList === undefined)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -241,9 +365,16 @@ export function PublishToPdfDialog({
             <ToggleRow
               id="title-page"
               label="Title page"
-              sublabel="Cover with type, code, owner, dates, PPE."
+              sublabel="One-page cover with type, doc ID, owner, dates, PPE."
               value={options.titlePage}
               onChange={(v) => setOptions((o) => ({ ...o, titlePage: v }))}
+            />
+          </OptionGroup>
+
+          <OptionGroup title="Document overview">
+            <AlwaysOnRow
+              label="Linked machines & logs"
+              sublabel="Machines and launched logs referenced in the body. Always included."
             />
             <ToggleRow
               id="rev-block"
@@ -251,16 +382,6 @@ export function PublishToPdfDialog({
               sublabel="Version table, generated from publish history."
               value={options.revisionBlock}
               onChange={(v) => setOptions((o) => ({ ...o, revisionBlock: v }))}
-            />
-          </OptionGroup>
-
-          <OptionGroup title="Appendices">
-            <ToggleRow
-              id="asset-list"
-              label="Linked-machine list"
-              sublabel="Every machine referenced in the body."
-              value={options.assetList}
-              onChange={(v) => setOptions((o) => ({ ...o, assetList: v }))}
             />
             <ToggleRow
               id="references-block"
@@ -305,6 +426,7 @@ export function PublishToPdfDialog({
             Estimated <strong>{estimatedPages}</strong> page
             {estimatedPages === 1 ? "" : "s"}
             {options.titlePage ? " · title page" : ""}
+            {hasFrontMatter ? " · overview" : ""}
             {pdfStorageIds.length > 0 ? " · + embedded PDF pages" : ""}
           </div>
         </div>
@@ -375,6 +497,18 @@ function ToggleRow({
   )
 }
 
+function AlwaysOnRow({ label, sublabel }: { label: string; sublabel: string }) {
+  return (
+    <div className="flex items-start gap-3 rounded-md px-1 py-1">
+      <Switch checked disabled className="mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">{label}</div>
+        <div className="text-[11px] text-muted-foreground">{sublabel}</div>
+      </div>
+    </div>
+  )
+}
+
 function WmOption({ value, label }: { value: string; label: string }) {
   return (
     <Label
@@ -387,9 +521,14 @@ function WmOption({ value, label }: { value: string; label: string }) {
   )
 }
 
-function estimatePageCount(body: unknown, opts: PdfExportOptions): number {
+function estimatePageCount(
+  body: unknown,
+  opts: PdfExportOptions,
+  hasFrontMatter: boolean,
+): number {
   let pages = 0
   if (opts.titlePage) pages += 1
+  if (hasFrontMatter) pages += 1
   // Naive: count headings / paragraphs and divide. The browser's actual
   // pagination is what matters; this is a rough estimate for the dialog hint.
   const blocks = countBlocks(body)

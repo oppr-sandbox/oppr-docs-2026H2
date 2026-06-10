@@ -226,9 +226,14 @@ function renderImage(
   opts: { imageUrlsByImageId?: Map<string, string> },
 ): TiptapNode {
   const url = imageId ? opts.imageUrlsByImageId?.get(imageId) : undefined
+  // Imported figures land small; authors enlarge the few that matter in the
+  // editor. width is the JSON attr ImageWithRef reads (data-width is only the
+  // HTML serialization) and must be a multiple of 5.
   const attrs: Record<string, unknown> = {
     src: url ?? "",
     alt,
+    width: 35,
+    align: "center",
   }
   if (imageId) {
     attrs["data-image-id"] = imageId

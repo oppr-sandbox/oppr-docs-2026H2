@@ -1,8 +1,9 @@
 # Oppr DOCS — Build Status
 
-**Snapshot:** 2026-05-06
+**Snapshot:** 2026-06-10
 **Build state:** Green. `npx tsc -b` and `npx vite build` both exit 0.
-**Dev server:** `npm run dev` → http://localhost:5173
+**Dev:** `npx convex dev` (terminal 1) + `npm run dev` (terminal 2) → http://localhost:5173
+**Backend:** Convex dev deployment `dev:different-newt-869`, project `oppr-docs-2026h2`
 
 This file is a living record of what's actually shipped in `oppr-docs/`. Update it whenever work lands. For requirements, read [`prd.md`](./prd.md). For business context, read [`../oppr_business.md`](../oppr_business.md). For Claude orientation, read [`CLAUDE.md`](./CLAUDE.md).
 
@@ -10,13 +11,13 @@ This file is a living record of what's actually shipped in `oppr-docs/`. Update 
 
 ## What Oppr DOCS is
 
-A frontend-only **showcase build** of the DOCS module from the Oppr v1.0 platform — the standardize half of the LOGS → IDA → DOCS continuous-improvement loop described in the business doc. Built to demonstrate the operator + process-engineer experience without standing up production infrastructure.
+A showcase build of the DOCS module from the Oppr v1.0 platform — the standardize half of the LOGS → IDA → DOCS continuous-improvement loop. A Vite/React frontend on a **Convex** backend (database, file storage, vector search, auth, server-side AI). Production-shaped, demo-sized.
 
 Three visible surfaces:
 
-1. **Desktop knowledge-worker app** — author SOPs, manage assets, browse the document library, ask IDA across documents.
+1. **Desktop knowledge-worker app** — author SOPs, manage assets/templates/images, import external PDFs, browse the library, ask IDA across documents.
 2. **Mobile-window operator app** — sidebar "Mobile" link opens a popup at `/m`. Resize manually to phone size. Simulated QR scan → asset → linked docs → ask IDA.
-3. **Settings** — Gemini API key, theme toggle, "Reset demo" button, embedding tools.
+3. **Settings** — AI/embedding status + re-embed tools, naming vocabulary management at `/settings/naming`, theme.
 
 ---
 
@@ -24,160 +25,94 @@ Three visible surfaces:
 
 | Layer | Choice | Why |
 |---|---|---|
-| Runtime | React 19 + TypeScript 5.8 | Same as `../oppr-design-showcase` — direct cherry-pick |
-| Build | Vite 7 | Fast dev, native ESM, WASM-friendly |
-| Styling | Tailwind 3 + shadcn/ui (Radix) + CSS custom-property tokens | Light/dark theme, 40+ components copied from showcase |
-| Routing | `wouter` 3 | Lightweight; `/m/*` branch renders mobile shell, everything else desktop |
-| Database | `sql.js` 1.13 → IndexedDB | Zero backend; all data in the browser; cross-tab sync via BroadcastChannel |
-| Editor | TipTap 2.10 (StarterKit + Image + Link + Placeholder + Table family + 6 custom nodes) | Open source, React-native, extensible |
-| PDF view | `react-pdf` 10 + `pdfjs-dist` 5 | View + extract text on upload; reads `?page=` for citation deep links |
-| PDF generation | `pdf-lib` 1.17 | Builds the seeded Drying Oven 4 manual at boot so the demo has a real PDF blob |
-| AI | `@google/generative-ai` 0.24 → `gemini-embedding-2` (768-dim) + `gemini-3.1-flash-lite-preview` | Embedding model emits 768 dims via `outputDimensionality`; chat model is fast/cheap; key from Settings (localStorage) or `VITE_GEMINI_API_KEY` |
-| Markdown | `react-markdown` 10 + `remark-gfm` 4 | Used by the AI chat panel; throttled re-parse during streaming so partial tokens don't flicker |
-| Forms | `react-hook-form` 7 + `zod` 4 | Used in MetadataPanel |
+| Runtime | React 19 + TypeScript 5.8 | strict-off TS per `tsconfig.app.json` |
+| Build | Vite 7 | Fast dev, native ESM |
+| Backend | Convex 1.37 | DB + file storage + vector index + server functions + live queries in one |
+| Auth | `@convex-dev/auth` 0.0.92 | Magic-link via Resend, gated to `@oppr.ai`; `AuthGate`/`SignInForm` in `src/auth/` |
+| Styling | Tailwind 3 + shadcn/ui (Radix) + CSS custom-property tokens | Light/dark theme |
+| Routing | `wouter` 3 | `/m/*` branch renders mobile shell, everything else desktop |
+| Editor | TipTap 2.10 (StarterKit + Link + Placeholder + Table family + 9 custom nodes) | Open source, React-native, extensible |
+| PDF view | `react-pdf` 10 (bundles pdfjs) | Viewing + text extraction; `pdf-lib` assists the importer |
+| PDF export | `src/lib/pdf-export/*` | Print-window pipeline; no server rendering |
+| AI | Gemini via `convex/ai/*` — `gemini-embedding-2` (768-dim) + `gemini-3.1-flash-lite` | Server-side only; key lives in Convex env (`GEMINI_API_KEY`); streaming over the `/ai/askStream` HTTP action |
+| Markdown | `react-markdown` 10 + `remark-gfm` 4 | AI chat panel; throttled re-parse during streaming |
+| Forms | `react-hook-form` 7 + `zod` 4 | MetadataPanel and dialogs |
 | Toasts | `sonner` 2 | Used everywhere |
-| Theming | `next-themes` 0.4 | Light/dark mode, defaults light |
-
-Bundle size: ~2.25 MB JS gzipped 727 KB. Heavy because of sql.js + pdfjs + tiptap + react-markdown + pdf-lib. Acceptable for a showcase; not optimised.
+| Theming | `next-themes` 0.4 | Defaults light |
 
 ---
 
-## What's built (M1–M8 ✅)
+## What's shipped
 
-### M1 — Scaffold
-- Vite project at `oppr-docs/` with all configs cherry-picked from the showcase
-- `src/components/ui/*` — 44 shadcn components (calendar, carousel, chart removed; the rest copied verbatim)
-- Theme tokens (`src/index.css`)
-- Routing shell — top-level `useLocation` switch; `/m/*` → `MobileShell`, else → `DesktopShell`
-- Desktop sidebar with **Mobile** button that calls `window.open('/m', 'oppr-mobile', 'width=390,height=844…')`
+### Core document lifecycle
+- **Statuses:** `pre_draft → draft → in_review → approved → published → archived`, gated transitions in `convex/documents.ts` (`submitForReview`, `approve`, `publish`, `revertToDraft`, `archive`) with per-version signoff trail (author/reviewer/approver) on `documentVersions`.
+- **Versioning:** `currentVersion` (working edition) vs `liveVersion` (what operators/QR/RAG are served). **Saving never bumps a version.** Publish pins `liveVersion`. Editing a published doc forks via `documents.createNewVersion`; published versions are read-only. Readers use `getServingVersion`.
+- **Chunks are reconciled on save** (delete + reinsert per version) and superseded editions' chunks are dropped on publish — only the live version feeds RAG.
 
-### M2 — SQLite + seed
-- `src/db/sqlite.ts` — singleton sql.js engine; WASM loaded via `?url` import (same-origin, COEP-safe); 500 ms debounced persist to IndexedDB key `oppr-docs-db`. `seed()` is now async because it generates a real PDF.
-- `src/db/migrations.ts` — runs `schema.sql` (12 tables; see [Data model](#data-model)). Includes `rebuildQaSessionsIfStaleCheck()` — rebuilds `qa_sessions` if the persisted schema's CHECK still excludes `'library'`.
-- `src/db/seed.ts` — deterministic seed: 3 users, 6 HOL pigment-calcination assets, 4 logs, **12 documents** (10 TipTap + 1 generated PDF + 1 reserved). Bodies factored into `src/db/seedDocs.ts`. Real PDF for Drying Oven 4 generated at boot via `src/db/seedPdf.ts` (`pdf-lib`, 4 pages). `paragraphChunks()` walks the body recursively and emits one chunk per paragraph / list item / table row; tables prefix each row with column headers; step lists prefix `Step N:`; atom blocks (ppe / diagram / launchLog / linkedAsset) are skipped.
-- `src/db/repositories/*.ts` — typed read/write helpers for every table
-- `src/db/DbProvider.tsx` — React context, `useDb()` + `useDbWatcher()`, BroadcastChannel cross-tab sync, `reset()`
-- Reset Demo button wired in Settings
+### Naming codes (immutable, server-allocated)
+- Format `{LOCATION}-{DISCIPLINE}-{TYPE}-{NNNN}` (e.g. `HOL-OPS-SOP-0001`). Allocated atomically from `namingCounters` per (location, discipline, type) triplet in `convex/naming.ts`; `peekNextCode` previews in the metadata panel.
+- The code is **immutable once allocated**; location/discipline/type are locked in the editor. Changing filing goes through `documents.refile` — mints a NEW document with a fresh code, copies content + roles, optionally archives the old (`RefileDocumentDialog`).
+- Vocabulary (locations, disciplines) managed at `/settings/naming`. Older docs missing location/discipline are backfilled by parsing the code (`parseNamingCode` in `convex/naming.ts`, client mirror in `src/lib/namingCode.ts`).
 
-### M3 — Library + Assets
-- `LibraryPage` — full-text search + status/type filters, `DocumentLibraryTable` with linked-asset counts
-- `AssetsPage` — card grid, doc counts per asset
-- `AssetDetailPage` — header + linked-docs table
-- Two-line cells (primary text + mono code) following production Oppr Logs pattern
+### Authoring
+- `DocumentEditor` — toolbar + slash menu, StarterKit + Link + Table family + custom nodes: `ImageWithRef`, `LaunchLog`, `LinkedAsset`, `ReferenceDoc`, `Callout`, `Ppe`, `Diagram` (preset + builder, curved connectors), `StepList`/`StepItem`, `PdfAttachment`. `TiptapReadOnly` mirrors the list exactly.
+- `MetadataPanel` — sticky right rail with title, filing (locked once coded), roles, tags, plus **derived** cards: Linked machines, Reference documents, and **Linked logs** — all computed from body pills (`src/lib/bodyAssets.ts`, `bodyRefs.ts`, `bodyLogs.ts`); no manual linking.
+- **Launch-log pills** — `launchLog` node carries `logId`/`anchorId`/`label`/`code`; pills show the log code; the Linked logs card aggregates them.
+- **Keyboard shortcuts hint** (`ShortcutsHint` popover in the editor header).
+- Templates are **DB-backed** (`templates` table) and managed at `/templates` (create/edit/duplicate/delete); `templates.seedIfEmpty` + `seedTemplates:seedBestPracticeSop` seed defaults.
 
-### M4 — PDF
-- `DocumentNewPage?kind=pdf` — drop-zone, parses with `pdfjs.getDocument()`, stores BLOB in `pdf_blobs`, extracts per-page text into `chunks`
-- `PdfViewer` — page nav + zoom; copies bytes before passing to react-pdf (pdf.js detaches buffers)
+### Images
+- `images` + `imageUsages` tables; uploads deduped by sha256; usages recomputed per document version (`images.recomputeUsagesForVersion`).
+- **Image library at `/images`** — flat view, group-by-document view, and a **diagrams tab** (diagram SVGs cached to storage); usage/status surfaced per image; detail modal with replace/alt-text/delete.
+- `ImageWithRef` node — `data-image-id` round-trip, `width` percent attr with on-canvas resize + alignment, drag-to-move handled by ProseMirror (wrapper `draggable` + `data-drag-handle`; inner `<img draggable={false}>` so the browser doesn't start a native drag).
+- `InsertImageDialog` — library pick / upload / URL.
 
-### M5 — TipTap authoring + versioning
-- `DocumentEditor` — full toolbar, slash menu (`/` opens floating panel — no tippy), StarterKit + custom nodes
-- `MetadataPanel` — sticky right rail; title/type/owner/tags/assets/code; zod validation
-- `NamingCodeField` — `{SITE}-{DEPT}-{TYPE}-{NNNN}` with auto-increment + uniqueness check
-- `DocumentEditPage` — Save Draft / Submit for review / Publish, each calls `publishVersion` and re-extracts chunks
-- `VersionHistoryDrawer` — shadcn Sheet listing all versions
+### External Document Importer
+- `convex/importer/*` + `src/pages/desktop/ImportPage.tsx` (`/import`, `/import/:jobId`).
+- Multi-stage `importJobs` pipeline: `uploaded → extracted → mapped → linksResolved → finalized` (or `failed`). Client extraction in `src/lib/import/*` (pdf text + image extraction, StructuredDoc, render to TipTap); server mapping via Gemini (`importer/map.ts`); link resolution against existing docs/assets/logs; finalize creates a real document.
+- Imported figures insert at **width 35%, centered**.
 
-### M6 — SOP→Log clickable launch (custom block)
-- `LaunchLogNode` (TipTap block atom) + `LaunchLogPicker` dialog
-- `LinkedAssetNode` (inline atom) + `LinkedAssetPicker`
-- Both round-trip through `data-*` attributes; rendered identically by `TiptapReadOnly`
+### PDF export
+- `src/lib/pdf-export/*` (`buildPrintDoc`, `openPrintWindow`, `printStyles`) + `PublishToPdfDialog`.
+- Compact **title page** with prominent code badge and PPE band; **"Document overview" front-matter page** with revision history, Linked machines (always on), Linked logs, References; then the body. Watermark support (e.g. drafts).
+- Self-contained output: diagram backgrounds (Convex storage URLs inside cached SVGs) are pre-fetched and inlined as data URLs; `pdfAttachment` pages are rasterised to data URLs.
 
-### M7 — Mobile-window operator app
-- `MobileShell` with bottom nav (Home / Scan / Ask) and resize-hint overlay
-- `MobileScanPage` — asset picker simulating QR scan
-- `MobileAssetPage` — header, linked-docs list, floating Ask button
-- `MobileDocPage` — branches PDF vs TipTap, with ErrorBoundary + Suspense fallback
-- `MobileAskPage` — uses AskPanel in compact mode, scoped via `?scope=doc:id` or `?scope=asset:id`
+### Assets + logs
+- Asset registry with QR tokens, floorplan pins, optional photo (`imageStorageId`), per-asset logs (`assetLogs`).
+- `logs` table now has an optional `code` (placeholders `AMS-OPS-LOG-0001`..`0005` seeded). Write defensively — older rows may lack it.
 
-### M8 — Gemini Q&A
-- `src/ai/gemini.ts` — API key resolution (localStorage → `VITE_GEMINI_API_KEY`)
-- `src/ai/embeddings.ts` — `embed`, `embedBatch` (concurrency 4 + 200ms backoff), `embedMissingChunks`
-- `src/ai/similarity.ts` — `cosineSim`, `topK`
-- `src/ai/retrieval.ts` — `retrieveForQuery` for `doc` | `asset` | `library` scopes
-- `src/ai/chat.ts` — `askQuestion()` async generator, streams via `generateContentStream`, yields `{delta}` then `{done, citations}`
-- `src/components/ai/AskPanel.tsx` — chat UI with persisted sessions for doc/asset, ephemeral for library
-- `src/components/ai/AskIdaSheet.tsx` — slide-in Sheet wrapper used in DocumentReadPage and LibraryPage
+### AI / RAG (server-side)
+- `convex/ai/embed.ts` — embeddings written onto `chunks.embedding` (768-dim Convex `vectorIndex`, filterable by `documentId`), idempotent on `chunkId + modelVersion`, auto-scheduled on publish; `embedStatus` drives the Settings AI panel; `embedMissing` / `reembedAll` actions.
+- `convex/ai/ask.ts` — `askQuestion` action + `askStream` HTTP action (NDJSON streaming) registered in `convex/http.ts` at `/ai/askStream` (browser hits `VITE_CONVEX_SITE_URL`).
+- Scopes: doc / asset / library. Q&A persists per-user in `qaSessions` + `qaMessages` with typed citations.
+- Chat UI: `AskPanel` + `AskIdaSheet` slide-in; markdown rendering, citation pills, `SourcesBlock`, `RelatedRail`, `ScopeChip`, starter prompts, copy/regenerate/stop. Mobile parity via `/m/ask`.
 
-### Recent polish (post-M8)
-- **WYSIWYG editor** — replaced dead `prose` Tailwind classes (`@tailwindcss/typography` not installed) with a shared `.tiptap-content` CSS class; editor and read view now look identical
-- **Ask IDA as slide-in** — DocumentReadPage and LibraryPage both have an "Ask IDA" header button that opens a right-side Sheet
-- **Library Q&A scope persists** — `qa_sessions.scope_kind` accepts `'library'`; older blobs are auto-migrated by rebuilding the table.
+### Mobile
+- `MobileShell` with bottom nav; home, simulated QR scan, asset list/detail, doc list/reader, ask. Global search, doc summary with PPE + asset chips above the fold.
 
-### Chat / RAG hardening (the second round)
-- **Markdown rendering** for assistant turns via `react-markdown` + `remark-gfm`. Throttled re-parse (~30 Hz) during streaming so partial tokens don't flicker.
-- **Inline `[N]` citation anchors** become clickable footnote buttons that scroll to the matching pill; **bare entity codes** (HOL-OPS-SOP-0001 / RMR-101 / HOL-OPS-LOG-0001) auto-link when they exist in the DB (`useCodeIndex`).
-- **`SourcesBlock`** groups citations by document with hover-card previews and "Open at this location" deep links (PDF jumps via `?page=N`).
-- **`RelatedRail`** under each assistant message — pure DB joins from the cited doc set produce other docs, assets, and logs the user can pivot to.
-- **`StarterPrompts`** per-scope on empty state, **per-message Copy / Regenerate / Stop**, **`AbortController`** to cancel mid-stream, **6-turn sliding history** to keep context bounded.
-- **`ScopeChip`** in the panel header — switch between Library / Document / Asset live without closing the chat.
-- **Per-scope context block** (`src/ai/context.ts`) — for inventory questions on library scope, or always for doc/asset, a deterministic summary (full doc inventory, doc TOC, asset details) is injected before EXCERPTS so overview questions answer correctly without RAG samples.
-- **Mobile parity** — `MobileAskPage` supports library scope first-class, has "Ask across everything" as the headline option, and the scope chip works inside the mobile panel.
-
-### Document authoring upgrades (latest)
-- **6 custom TipTap nodes**: `LaunchLog`, `LinkedAsset`, `Callout` (warning/caution/notice/tip/danger), `Ppe`, `Diagram` (six curated SVG presets in `diagramPresets.ts`), `StepList`/`StepItem` (auto-numbered procedure steps).
-- **`TiptapReadOnly` extension list now mirrors the editor** (Image, Link, Table family + all custom nodes). Previous bug: tables / images authored in the editor were silently stripped on the read view because the extensions weren't loaded.
-- **Document hero block** (`DocumentHero`) on `DocumentReadPage`: bold ID badge + type/status/version pills, owner, dates, asset chips, tags, **PPE pictogram row** extracted from the body's first `ppe` node.
-- **Auto-generated TOC** (`DocumentToc`) sidebar with smooth-scroll anchors and IntersectionObserver scroll-spy.
-- **Print** button on the read header; `@media print` CSS hides chrome and adds page-break hints to tables, callouts, step lists, and diagrams.
-- **Library "Group by type" toggle** — clusters docs by SOP / Manual / WI / LMRA in the Library page.
-- **`New document` templates** (`DocumentTemplates.ts`) — picking a doc type seeds the editor with a typed skeleton (PPE row, safety callout, step list, troubleshooting table for SOP; operating envelope, maintenance schedule, spare parts, revision history for Manual; etc.). Switching type before editing swaps the skeleton; once the user types, the body is left alone.
-- **Mobile** — `MobileDocSummary` shows PPE icons + asset chips above the body so the operator gets the safety briefing above the fold.
-
-### Seed enrichment (latest)
-- 8 → **12 documents**, all plant-correct for the pigment-calcination skin (RMR-101 / FCK-102 / FCK-103 / FRT-201 / FRT-202 / STR-301).
-- Bodies factored into `src/db/seedDocs.ts`. Every authoring primitive (table, callout, PPE chip, SVG diagram, step list, LaunchLog, LinkedAsset) appears at least twice.
-- One **real PDF** generated via `pdf-lib` at boot for `HOL-OPS-MAN-0002` (Drying Oven 4) — 4 pages, real text content, real metadata. Per-page chunks materialised so RAG works against it.
-- New docs: `HOL-OPS-SOP-0004` Pre-Kiln Inspection, `HOL-OPS-LMRA-0002` Hot work permit, `HOL-OPS-WI-0002` Sticker OCR capture (UC1 from business doc), `HOL-OPS-SOP-0005` End-of-shift summary (UC3 asset-agnostic).
-
-### AI model swap (latest)
-- Embedding model: `text-embedding-004` → **`gemini-embedding-2`** with `outputDimensionality: 768` so existing 768-dim chunk storage and similarity math stay valid.
-- Chat model: `gemini-2.0-flash` → **`gemini-3.1-flash-lite-preview`**.
-- Settings page rebuilt: live test panels for embedding (input → dim/latency/L2-norm/vector preview) and generation (input → latency/text), plus "Re-embed all (clear + rebuild)" because vectors from the old model live in a different space than the new one.
-
----
-
-## What's not built (M9–M10 ⏳)
-
-- Manager review flow — version diff, approve from "in_review" → "published"
-- Floorplan view (the visually striking feature in production — see screenshots)
-- Asset List ↔ Asset Hierarchy tab toggle
-- Project Context pill in sidebar header
-- Inline edit/delete actions in tables
-- Reorder up/down arrows on tables
-- Keyboard shortcuts (cmd+k command palette, cmd+s save)
-- Empty-state onboarding "Load demo data" CTA
-- README demo script
-
-See [`prd.md`](./prd.md) §13 for the full milestone list.
+### Seeding / reset
+- `convex/seedMinimal.ts` — internalAction `run`: **`npx convex run seedMinimal:run`** wipes all app tables (templates + auth users preserved) and seeds the minimal test set: assets EXT-201 / MIX-101, logs AMS-OPS-LOG-0001..0005, docs **AMS-OPS-MAN-0001** (published) + **AMS-OPS-SOP-0001** (draft that exercises every authoring primitive), 2 stored SVG images.
+- `convex/admin.ts` `wipeAll` — CLI-only full wipe (also deletes storage blobs), no reseed.
+- There is no in-app "Reset demo" button anymore.
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  Browser                                                         │
-│                                                                  │
-│  ┌───────────────────┐         ┌───────────────────────────┐    │
-│  │ Desktop window     │  open  │ Mobile popup window        │    │
-│  │ http://…/          │ ─────▶ │ http://…/m                 │    │
-│  │ DesktopShell       │        │ MobileShell                │    │
-│  └─────────┬─────────┘         └─────────┬─────────────────┘    │
-│            │                              │                      │
-│            ▼                              ▼                      │
-│       ┌──────────────────────────────────────────┐               │
-│       │  Single sql.js DB instance per window     │               │
-│       │  Persisted to shared IndexedDB key        │               │
-│       │  Cross-tab sync via BroadcastChannel       │               │
-│       └────────────────┬─────────────────────────┘               │
-│                        │                                          │
-│                        ▼                                          │
-│              ┌───────────────────┐                                │
-│              │ Google Gemini API │  (embeddings + chat)           │
-│              └───────────────────┘                                │
-└──────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────┐        ┌──────────────────────────────────────┐
+│  Browser                    │        │  Convex deployment                    │
+│                             │        │  (dev:different-newt-869)             │
+│  Desktop window  /          │ live   │                                       │
+│  Mobile popup    /m         │◀──────▶│  schema.ts tables + authTables        │
+│  (useQuery subscriptions)   │ queries│  queries/mutations/actions            │
+│                             │        │  file storage (PDFs, images, SVGs)    │
+│  AskPanel ── POST NDJSON ───┼───────▶│  http.ts /ai/askStream ── Gemini      │
+│  (VITE_CONVEX_SITE_URL)     │        │  vectorIndex on chunks (768-dim)      │
+└─────────────────────────────┘        └──────────────────────────────────────┘
 ```
 
-**Single source of truth** for both windows: the IndexedDB-backed SQLite blob. Mobile and desktop see the same data. Edits in one trigger a `BroadcastChannel('oppr-docs')` ping; the other window reloads its in-memory DB and bumps a version counter so consumers re-render.
+Single source of truth: the Convex database. Every open window (desktop + mobile popup) subscribes via `useQuery` and live-updates on writes — no client persistence, no cross-tab sync code. Auth wraps the whole app (`AuthGate`); every Convex function calls `requireUser`/`requireUserId`.
 
 ---
 
@@ -185,92 +120,86 @@ See [`prd.md`](./prd.md) §13 for the full milestone list.
 
 ```
 oppr-docs/
-├── prd.md                  ← requirements (PRD + checklist)
-├── oppr-docs-status.md     ← THIS FILE
-├── CLAUDE.md               ← Claude orientation
+├── prd.md                       ← requirements (PRD + checklist)
+├── oppr-docs-status.md          ← THIS FILE
+├── CLAUDE.md                    ← Claude orientation
 ├── README.md
 ├── package.json
-├── vite.config.ts          ← `?url` WASM imports, COEP headers
-├── tailwind.config.js
-├── tsconfig.{,app,node}.json
-├── index.html
-├── .env.example            ← VITE_GEMINI_API_KEY
-├── .env.local              ← gitignored; real key here
-├── public/
-│   └── favicon.ico
+├── vite.config.ts
+├── vercel.json                  ← Vite framework + SPA rewrite
+├── .env.example                 ← VITE_CONVEX_URL / VITE_CONVEX_SITE_URL notes
+├── .env.local                   ← gitignored; CONVEX_DEPLOYMENT + URLs
+├── convex/                      ← backend
+│   ├── schema.ts                ← schema source of truth
+│   ├── auth.ts, auth.config.ts  ← @convex-dev/auth (magic link, @oppr.ai gate)
+│   ├── http.ts                  ← /ai/askStream routes
+│   ├── documents.ts             ← lifecycle, versioning, refile, archive
+│   ├── naming.ts                ← code allocation, vocabulary, parseNamingCode
+│   ├── assets.ts, logs.ts, qa.ts, files.ts, users.ts
+│   ├── images.ts                ← image library + usage reconciliation
+│   ├── templates.ts, seedTemplates.ts
+│   ├── seedMinimal.ts           ← npx convex run seedMinimal:run
+│   ├── admin.ts                 ← wipeAll (CLI-only)
+│   ├── ai/                      ← constants, embed, ask (+ askStream)
+│   ├── importer/                ← jobs, map (Gemini), templates
+│   └── lib/                     ← auth guards, assetWalker, imageWalker
 └── src/
-    ├── main.tsx
-    ├── App.tsx             ← top-level route switch (desktop vs mobile)
-    ├── index.css           ← Tailwind + design tokens + .tiptap-content
-    ├── vite-env.d.ts
+    ├── main.tsx                 ← ConvexAuthProvider wiring
+    ├── App.tsx                  ← route switch (desktop vs mobile) inside AuthGate
+    ├── index.css                ← Tailwind + tokens + .tiptap-content
+    ├── auth/                    ← AuthGate, SignInForm
     ├── components/
-    │   ├── ui/             ← 44 shadcn primitives (cherry-picked)
-    │   ├── layout/
-    │   │   └── DesktopShell.tsx
-    │   ├── mobile/         ← mobile-only components
-    │   ├── docs/           ← DOCS-specific (editor, viewer, panels, blocks)
-    │   └── ai/             ← AskPanel, AskIdaSheet
+    │   ├── ui/                  ← shadcn primitives (cherry-picked)
+    │   ├── layout/              ← DesktopShell, TopBar, PageHeader, UserMenu
+    │   ├── mobile/              ← MobileShell + mobile widgets
+    │   ├── docs/                ← editor, read view, custom nodes, dialogs, chunking.ts
+    │   └── ai/                  ← AskPanel, AskIdaSheet, SourcesBlock, …
     ├── pages/
-    │   ├── desktop/        ← /, /docs/*, /assets/*, /settings
-    │   └── mobile/         ← /m, /m/scan, /m/assets/*, /m/docs/*, /m/ask
-    ├── db/
-    │   ├── sqlite.ts       ← engine, IndexedDB persistence, debounced writes
-    │   ├── DbProvider.tsx  ← React context + cross-tab sync
-    │   ├── migrations.ts   ← runs schema.sql via Vite ?raw import
-    │   ├── schema.sql      ← 12 tables, full schema
-    │   ├── seed.ts         ← deterministic seed
-    │   ├── index.ts        ← barrel export
-    │   └── repositories/   ← one file per entity
-    ├── ai/
-    │   ├── gemini.ts       ← client + key resolution
-    │   ├── embeddings.ts
-    │   ├── similarity.ts
-    │   ├── retrieval.ts    ← scope-aware chunk retrieval
-    │   ├── chat.ts         ← streaming askQuestion()
-    │   └── index.ts
-    ├── types/
-    │   └── index.ts        ← Asset, Doc, DocVersion, Citation, etc.
+    │   ├── desktop/             ← dashboard, library, assets, docs, templates,
+    │   │                          images, import, settings, naming, analysis/
+    │   └── mobile/              ← /m pages
     ├── lib/
-    │   └── utils.ts        ← cn()
+    │   ├── utils.ts             ← cn()
+    │   ├── convex-adapters.ts   ← Convex doc → legacy domain types
+    │   ├── namingCode.ts        ← client-side parse/format mirror
+    │   ├── bodyAssets/bodyLogs/bodyRefs.ts  ← derived metadata from body pills
+    │   ├── pdf-export/          ← buildPrintDoc, openPrintWindow, printStyles
+    │   └── import/              ← extractPdf, structuredDoc, renderToTiptap, …
+    ├── types/                   ← shared domain types
     └── hooks/
-        └── use-toast.ts
 ```
 
 ### Folder ownership rules (for parallel agent work)
-- `src/db/**` — DB layer only. Don't reach in from pages.
-- `src/ai/**` — AI layer only. Page code calls via barrel exports.
+- `convex/**` — backend only. Schema, functions, importer, AI. Auth check in every function.
+- `convex/ai/**` — Gemini lives here; never in the browser.
 - `src/components/ui/**` — shadcn primitives. Don't edit; replace if needed.
 - `src/components/{layout,mobile,docs,ai}/**` — feature components.
 - `src/pages/desktop/**` and `src/pages/mobile/**` — route components only.
+- `src/lib/**` — pure helpers/adapters; no server logic.
 
 ---
 
 ## Data model
 
-12 SQLite tables. Schema source of truth: `src/db/schema.sql`.
+Schema source of truth: `convex/schema.ts` (plus `authTables` from `@convex-dev/auth`).
 
-```
-users(id, name, role)
-assets(id, code, name, site, location, qr_token, created_at,
-       description, level, floorplan, is_linked,
-       linked_log_code, linked_log_name, linked_log_description)
-documents(id, naming_code, title, type, status, current_version,
-          owner_id, tags_json, created_at, updated_at)
-document_versions(id, document_id, version, body_kind, body_json,
-                  pdf_blob_id, published_at)
-document_assets(document_id, asset_id)
-pdf_blobs(id, filename, mime, bytes, page_count)
-logs(id, name, type)
-document_log_refs(document_id, version, log_id, anchor_id)
-chunks(id, document_id, version, seq, text, page_or_section)
-embeddings(chunk_id, vector_json)
-qa_sessions(id, scope_kind, scope_id, created_at)   -- scope_kind: 'doc'|'asset'|'library'
-qa_messages(id, session_id, role, text, citations_json, created_at)
-```
-
-Seed totals: 3 users, 6 assets, 4 logs, **12 documents** (10 TipTap + 1 generated PDF + 1 reserved), ~140 chunks, 0 embeddings (computed on first Q&A or via Settings).
-
-Every TS shape mirrors a row in `src/types/index.ts`.
+| Table | Purpose |
+|---|---|
+| `meta` | key/value flags |
+| `assets` | registry: code, name, site, location, qrToken, floorplan pin, optional photo |
+| `assetLogs` | per-asset log placeholders |
+| `documents` | namingCode (immutable), location/discipline, title, type (sop/manual/work_instruction/lmra), status (pre_draft→archived), currentVersion, liveVersion, owner + author/reviewer/approver roles, tags |
+| `documentVersions` | per-version body (tiptap or pdf), pdfStorageId, signoffs trail |
+| `templates` | DB-backed document templates (managed at /templates) |
+| `namingLocations` / `namingDisciplines` | naming vocabulary (managed at /settings/naming) |
+| `namingCounters` | last allocated sequence per (location, discipline, type) triplet |
+| `documentAssets` | doc ↔ asset links |
+| `logs` | LOGS-module placeholders; optional `code` (AMS-OPS-LOG-…) |
+| `documentLogRefs` | launchLog anchors per doc version |
+| `chunks` | RAG chunks per doc version; `embedding` (768-dim vectorIndex, filter by documentId), embeddingModel, embeddedAt |
+| `qaSessions` / `qaMessages` | per-user Q&A with typed citations; scope doc/asset/library |
+| `images` / `imageUsages` | image library + per-version usage tracking |
+| `importJobs` | importer pipeline state (stage, classification, extraction, mapping, link resolutions, finalized doc) |
 
 ---
 
@@ -279,79 +208,73 @@ Every TS shape mirrors a row in `src/types/index.ts`.
 ### Desktop
 | Path | Component | Purpose |
 |---|---|---|
-| `/` | LibraryPage | Doc library + filters + Ask IDA (library scope) |
-| `/docs/new` | DocumentNewPage | New TipTap doc |
-| `/docs/new?kind=pdf` | DocumentNewPage | PDF upload flow |
-| `/docs/:id` | DocumentReadPage | Read view + Ask IDA (doc scope) + History |
-| `/docs/:id/edit` | DocumentEditPage | Two-column TipTap editor + MetadataPanel |
+| `/` | DashboardPage | Overview + entry points |
+| `/library` | LibraryPage | Doc library + filters + Ask IDA (library scope) |
 | `/assets` | AssetsPage | Asset registry |
 | `/assets/:id` | AssetDetailPage | Asset + linked docs |
-| `/settings` | SettingsPage | API key, theme, embeddings, reset |
+| `/docs/new` | DocumentNewChooserPage | Compose vs import chooser |
+| `/docs/new/compose` | DocumentNewPage | New TipTap doc from template |
+| `/docs/new/import` | DocumentNewPage | Import entry |
+| `/docs/:id` | DocumentReadPage | Read view (serving version) + Ask IDA + history + PDF export |
+| `/docs/:id/edit` | DocumentEditPage | Editor + MetadataPanel |
+| `/templates` | TemplatesPage | DB-backed templates |
+| `/templates/new`, `/templates/:id/edit` | TemplateEditPage | Template editor |
+| `/images` | ImageLibraryPage | Flat / by-document / diagrams views |
+| `/import`, `/import/:jobId` | ImportPage | Importer pipeline |
+| `/settings` | SettingsPage | AI status, embed/re-embed, theme |
+| `/settings/naming` | NamingSettingsPage | Locations + disciplines vocabulary |
+| `/analysis`, `/analysis/:slug` | Analysis pages | Case files for bugs/UX deep-dives |
 
 ### Mobile (popup window)
-| Path | Component | Purpose |
-|---|---|---|
-| `/m` | MobileHomePage | Scan / Ask shortcuts |
-| `/m/scan` | MobileScanPage | Simulated QR pick → asset |
-| `/m/assets/:id` | MobileAssetPage | Linked docs list |
-| `/m/docs/:id` | MobileDocPage | PDF or TipTap reader |
-| `/m/ask?scope=doc:id` | MobileAskPage | AskPanel scoped to doc |
-| `/m/ask?scope=asset:id` | MobileAskPage | AskPanel scoped to asset |
+| Path | Component |
+|---|---|
+| `/m` | MobileHomePage |
+| `/m/scan` | MobileScanPage |
+| `/m/assets`, `/m/assets/:id` | MobileAssetsPage / MobileAssetPage |
+| `/m/docs`, `/m/docs/:id` | MobileDocsPage / MobileDocPage |
+| `/m/ask` | MobileAskPage (`?scope=doc:id` / `asset:id` / library) |
 
 ---
 
 ## AI / RAG flow
 
-1. **Embedding** — `text-embedding-004` (768-dim). Lazy backfill: first time a user asks a question, any unembedded chunks are embedded inline (with a progress toast). Or run "Embed all chunks" from Settings to do it upfront.
-2. **Retrieval** — `retrieveForQuery(db, q, scope, k=5)`. Scope can be:
-   - `{ kind: "doc", id }` — chunks for that doc's current version
-   - `{ kind: "asset", id }` — chunks across all docs linked to that asset
-   - `{ kind: "library" }` — every chunk in the catalog (current version each)
-3. **Cosine top-k** — pure JS, in-memory. No vector DB.
-4. **Generation** — `gemini-2.0-flash` via `generateContentStream`. System prompt instructs `[^N]` citation format. Excerpts injected as numbered context blocks. History replayed as `user`/`model` turns.
-5. **Persistence** — doc/asset Q&A persists to `qa_sessions` + `qa_messages`. Library Q&A is ephemeral (avoids touching the schema's CHECK constraint).
-6. **UI** — `AskPanel` is the chat UI; `AskIdaSheet` wraps it in a right slide-in on desktop. Mobile `/m/ask` uses `AskPanel compact`.
+1. **Chunking** — client-side (`src/components/docs/chunking.ts`): `chunksFromTipTap` (per paragraph/list item/heading, section-labelled) or `chunksFromPdfPages`. Chunks passed into create/save mutations and reconciled per version.
+2. **Embedding** — `gemini-embedding-2` at 768 dims, server-side, idempotent on `chunkId + modelVersion`. Auto-scheduled on publish; manual `embedMissing` / `reembedAll` from Settings.
+3. **Retrieval** — Convex `vectorSearch` on `chunks.by_embedding`, filtered by `documentId` for doc scope; asset/library scopes assemble candidate doc sets first.
+4. **Generation** — `gemini-3.1-flash-lite`. `askQuestion` (action) for one-shot; `askStream` (HTTP action, NDJSON) for the chat UI. Citations in `[^N]` format mapped to typed citation objects.
+5. **Persistence** — all scopes persist per-user (`qaSessions.scopeKind`: doc/asset/library; library uses `scopeId = 'library'`).
 
 ---
 
 ## Build & verification
 
 ```bash
-# Type-check
-npx tsc -b
-
-# Production build
-npx vite build
-
-# Dev server
-npm run dev   # → http://localhost:5173
+npx tsc -b              # type-check (must exit 0)
+npx vite build          # production build (must exit 0)
+npx convex dev --once   # push convex/ changes if the watcher isn't running
 ```
 
-Last verified build (2026-05-05):
-- 2,378 modules transformed
-- 13 s build time
-- 1,494 KB JS (459 KB gzip), 76 KB CSS (13 KB gzip)
-- 1,046 KB pdf.worker (separate chunk), 660 KB sql-wasm
-- Two benign warnings: PdfViewer/TiptapReadOnly are both static and lazy-imported (Mobile uses lazy + Suspense as a defensive fallback).
+Production: Vercel (static Vite bundle) + Convex prod deployment. See README for deploy steps.
 
 ---
 
 ## Known issues / quirks
 
-- **Cross-window writes** drop in-flight unsaved edits in the receiving tab — accepted v1 limitation. PRD §15.
-- **PDFs as BLOBs in SQLite** could bloat memory if you upload many large files. Cap at 10 MB or split storage; not yet implemented.
-- **Gemini key in browser** — `VITE_*` vars are bundled into the client; key is visible in devtools. Fine for local showcase, rotate after demos.
-- **Library Q&A persists.** `qa_sessions.scope_kind` accepts `'library'`. Older IndexedDB blobs are auto-migrated on next boot — no reset required for the schema change, but the migration only runs once per blob.
-- **Embedding seed docs takes ~30–60 s** on first Q&A. UI shows progress toast. After an embedding-model swap (e.g. to `gemini-embedding-2`), Settings → "Re-embed all" is mandatory because old vectors live in a different space.
+- **Editor/read-view/PDF-export must stay in sync.** A node added to `DocumentEditor` but not `TiptapReadOnly` is silently stripped; `buildPrintDoc.ts` needs a renderer too.
+- **`logs.code` is optional** — older rows lack it; render defensively.
+- **Embedding-model swap requires re-embed** (Settings → "Re-embed all"); embeddings are keyed on `chunkId + modelVersion` so stale vectors are detectable but not auto-fixed.
+- **Diagram SVG backgrounds are storage URLs** — fine in-app, but anything that snapshots the SVG (PDF export) must inline them as data URLs (export already does).
+- **`peekNextCode` can be stale by one** if a concurrent create lands first — cosmetic only; the real code is allocated inside the create mutation.
+- **Naming code immutability** means a mis-filed document can't be renamed — `documents.refile` creates a new document (new Convex id, new code). Inbound links to the old id keep pointing at the archived doc.
+- **Analysis pages** under `/analysis` are dev-facing case files, not product surface.
 
 ---
 
 ## Recent diffs worth knowing about
 
-- **2026-05-05** — `Asset` type extended with production-mirror fields (description/level/floorplan/is_linked/linked_log_*) by the user mid-flight. Both `mapAsset` mappers updated. Schema `assets` table widened.
-- **2026-05-05** — `optimizeDeps.exclude: ['sql.js']` removed from `vite.config.ts`. With it set, Vite served `sql.js` raw and the ESM browser build doesn't expose a default export — broke runtime.
-- **2026-05-05** — WYSIWYG: shared `.tiptap-content` CSS class replaces dead `prose` classes.
-- **2026-05-05** — Ask IDA moved from inline panel to slide-in Sheet; library scope added.
+- **2026-06-10** — Image library: group-by-document view + diagrams tab + per-image status. Importer figures now insert at 35% width centered. Image drag-drop fixed (ProseMirror owns the drag; inner img `draggable=false`). Launch-log pills carry log codes; derived "Linked logs" card in MetadataPanel. Editor keyboard-shortcuts hint. Naming lifecycle hardened (immutable codes, locked filing, `refile` flow, parse-based backfill). PDF export overhaul (compact title page, Document overview front-matter, inlined diagram backgrounds). `seedMinimal` replaces all previous seed/reset paths.
+- **2026-06 (earlier)** — Versioning model landed: `liveVersion` vs `currentVersion`, signoffs, read-only published versions, `createNewVersion` fork. Chat model moved to `gemini-3.1-flash-lite`.
+- **2026-05 → 2026-06** — Migration off sql.js/IndexedDB to Convex: auth, server-side AI, file storage, importer, templates, image library. `src/db/**`, `src/ai/**`, `src/admin/**`, `convex/seed.ts`, `convex/reset.ts`, `convex/seedAssets.ts`, and the in-app "Reset demo" flow were all deleted.
 
 ---
 
@@ -359,7 +282,7 @@ Last verified build (2026-05-05):
 
 When you ship work that materially changes:
 - a tech choice → update the **Tech stack** table
-- a milestone status → tick **What's built** / **What's not built**
+- a feature → update **What's shipped**
 - a folder or contract → update **Folder structure** / **Folder ownership rules**
 - a schema → update **Data model**
 - a route → update **Routes**

@@ -25,6 +25,31 @@ export function typeToken(type: string): string {
   return TYPE_TOKEN[type] ?? "DOC"
 }
 
+const TOKEN_TO_TYPE: Record<string, string> = {
+  SOP: "sop",
+  MAN: "manual",
+  WI: "work_instruction",
+  LMRA: "lmra",
+}
+
+// Inverse of formatCode. Used to backfill location/discipline on documents
+// created before those fields existed — the code is the source of truth.
+export function parseNamingCode(code: string): {
+  location: string
+  discipline: string
+  type: string | null
+  seq: number
+} | null {
+  const m = /^([A-Z0-9]+)-([A-Z0-9]+)-([A-Z0-9]+)-(\d+)$/.exec(code)
+  if (!m) return null
+  return {
+    location: m[1],
+    discipline: m[2],
+    type: TOKEN_TO_TYPE[m[3]] ?? null,
+    seq: parseInt(m[4], 10),
+  }
+}
+
 export function counterKey(
   location: string,
   discipline: string,

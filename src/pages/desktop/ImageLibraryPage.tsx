@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { Link } from "wouter"
 import {
+  ArrowUpRight,
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
@@ -35,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,10 +51,19 @@ import {
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { ImageDetailModal } from "@/components/docs/ImageDetailModal"
+import { StatusBadge } from "@/components/docs/StatusBadge"
 import { cn } from "@/lib/utils"
+import type { DocumentStatus } from "@/types"
 
 type SourceFilter = "all" | "upload" | "url"
 type ViewMode = "flat" | "byDoc"
+
+type DocRef = {
+  documentId: Id<"documents">
+  namingCode: string
+  title: string
+  status: DocumentStatus
+}
 
 type ImageRow = {
   _id: Id<"images">
@@ -61,11 +73,7 @@ type ImageRow = {
   byteSize: number | null
   createdAt: number
   usageCount: number
-  documentRefs: Array<{
-    documentId: Id<"documents">
-    namingCode: string
-    title: string
-  }>
+  documentRefs: DocRef[]
 }
 
 export function ImageLibraryPage() {
@@ -258,18 +266,21 @@ export function ImageLibraryPage() {
               <SelectItem value="url">External URL</SelectItem>
             </SelectContent>
           </Select>
-          <Select
+          <ToggleGroup
+            type="single"
+            variant="outline"
             value={viewMode}
-            onValueChange={(v) => setViewMode(v as ViewMode)}
+            onValueChange={(v) => {
+              if (v) setViewMode(v as ViewMode)
+            }}
           >
-            <SelectTrigger className="h-8 w-[140px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="flat">Flat list</SelectItem>
-              <SelectItem value="byDoc">Group by document</SelectItem>
-            </SelectContent>
-          </Select>
+            <ToggleGroupItem value="flat" className="h-8 px-3 text-xs">
+              All images
+            </ToggleGroupItem>
+            <ToggleGroupItem value="byDoc" className="h-8 px-3 text-xs">
+              By document
+            </ToggleGroupItem>
+          </ToggleGroup>
           <label className="flex items-center gap-1.5 text-xs">
             <input
               type="checkbox"
@@ -340,15 +351,7 @@ export function ImageLibraryPage() {
           </TabsContent>
 
           <TabsContent value="diagrams">
-            <div className="rounded-md border border-dashed p-10 text-center">
-              <Shapes className="mx-auto h-8 w-8 text-muted-foreground" />
-              <div className="mt-2 text-sm font-medium">No saved diagrams yet</div>
-              <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-                Diagrams you build will be collected here. The diagram builder is
-                coming soon — for now, insert curated presets from the editor
-                toolbar.
-              </p>
-            </div>
+            <DiagramsTab />
           </TabsContent>
         </Tabs>
       </div>
@@ -439,11 +442,11 @@ function FlatList({
               />
             </TableHead>
             <TableHead className="w-[8%]">Preview</TableHead>
-            <TableHead className="w-[24%]">Filename</TableHead>
-            <TableHead className="w-[8%]">Source</TableHead>
-            <TableHead className="w-[8%]">Size</TableHead>
-            <TableHead className="w-[12%]">Used in</TableHead>
-            <TableHead className="w-[12%]">Uploaded</TableHead>
+            <TableHead className="w-[20%]">Filename</TableHead>
+            <TableHead className="w-[7%]">Source</TableHead>
+            <TableHead className="w-[7%]">Size</TableHead>
+            <TableHead className="w-[20%]">Used in</TableHead>
+            <TableHead className="w-[10%]">Uploaded</TableHead>
             <TableHead>Alt text</TableHead>
           </TableRow>
         </TableHeader>
@@ -551,9 +554,20 @@ function ImageTableRow({
             orphan
           </Badge>
         ) : (
-          <Badge className="bg-primary/15 text-primary text-[10px]">
-            {img.usageCount} doc{img.usageCount === 1 ? "" : "s"}
-          </Badge>
+          <div className="flex flex-col gap-1">
+            {img.documentRefs.map((ref) => (
+              <span
+                key={ref.documentId}
+                className="flex items-center gap-1.5"
+              >
+                <span className="font-mono text-[11px]">{ref.namingCode}</span>
+                <StatusBadge
+                  status={ref.status}
+                  className="px-1.5 py-0 text-[9px]"
+                />
+              </span>
+            ))}
+          </div>
         )}
       </TableCell>
       <TableCell className="text-xs text-muted-foreground">
@@ -570,50 +584,35 @@ function ImageTableRow({
 
 type Group = {
   key: string
-  kind: "shared" | "doc" | "orphans"
-  label: string
-  sublabel?: string
+  kind: "doc" | "orphans"
+  ref?: DocRef
   images: ImageRow[]
 }
 
+// Images used by multiple documents appear under each document they're used in.
 function buildGroups(images: ImageRow[]): Group[] {
-  const shared: ImageRow[] = []
   const orphans: ImageRow[] = []
-  const byDoc = new Map<string, { ref: ImageRow["documentRefs"][number]; images: ImageRow[] }>()
+  const byDoc = new Map<string, { ref: DocRef; images: ImageRow[] }>()
   for (const img of images) {
     if (img.usageCount === 0) {
       orphans.push(img)
       continue
     }
-    if (img.usageCount >= 2) {
-      shared.push(img)
-      continue
+    for (const ref of img.documentRefs) {
+      const key = String(ref.documentId)
+      const bucket = byDoc.get(key) ?? { ref, images: [] }
+      bucket.images.push(img)
+      byDoc.set(key, bucket)
     }
-    const ref = img.documentRefs[0]
-    if (!ref) continue
-    const key = String(ref.documentId)
-    const bucket = byDoc.get(key) ?? { ref, images: [] }
-    bucket.images.push(img)
-    byDoc.set(key, bucket)
   }
   const groups: Group[] = []
-  if (shared.length > 0) {
-    groups.push({
-      key: "__shared__",
-      kind: "shared",
-      label: "Shared",
-      sublabel: "Used in 2+ documents",
-      images: shared,
-    })
-  }
   const docGroups = Array.from(byDoc.values())
   docGroups.sort((a, b) => a.ref.namingCode.localeCompare(b.ref.namingCode))
   for (const g of docGroups) {
     groups.push({
       key: String(g.ref.documentId),
       kind: "doc",
-      label: g.ref.namingCode,
-      sublabel: g.ref.title,
+      ref: g.ref,
       images: g.images,
     })
   }
@@ -621,8 +620,6 @@ function buildGroups(images: ImageRow[]): Group[] {
     groups.push({
       key: "__orphans__",
       kind: "orphans",
-      label: "Orphans",
-      sublabel: "Not currently referenced — safe to delete",
       images: orphans,
     })
   }
@@ -714,42 +711,62 @@ function GroupedList({
           g.kind === "orphans"
             ? "border border-amber-500/30 bg-amber-500/10"
             : "bg-muted/40"
-        const badgeClass =
-          g.kind === "shared"
-            ? ""
-            : g.kind === "orphans"
-              ? "border-amber-500/40 text-amber-700 dark:text-amber-300"
-              : "font-mono"
         return (
           <div key={g.key}>
-            <button
-              type="button"
-              onClick={() => toggleCollapsed(g.key)}
+            <div
               className={cn(
-                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-medium",
+                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-medium",
                 headerToneClass,
               )}
             >
-              {isCollapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )}
-              <Badge
-                variant={g.kind === "shared" ? "secondary" : "outline"}
-                className={cn("text-[10px]", badgeClass)}
+              <button
+                type="button"
+                onClick={() => toggleCollapsed(g.key)}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
               >
-                {g.label}
-              </Badge>
-              {g.sublabel && (
-                <span className="font-normal text-muted-foreground">
-                  {g.sublabel}
+                {isCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                )}
+                {g.kind === "doc" && g.ref ? (
+                  <>
+                    <span className="font-mono">{g.ref.namingCode}</span>
+                    <span className="truncate font-normal text-muted-foreground">
+                      {g.ref.title}
+                    </span>
+                    <StatusBadge
+                      status={g.ref.status}
+                      className="shrink-0 px-1.5 py-0 text-[9px]"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Badge
+                      variant="outline"
+                      className="border-amber-500/40 text-[10px] text-amber-700 dark:text-amber-300"
+                    >
+                      Not used in any document
+                    </Badge>
+                    <span className="font-normal text-muted-foreground">
+                      Safe to delete
+                    </span>
+                  </>
+                )}
+                <span className="ml-auto shrink-0 font-normal text-muted-foreground">
+                  {g.images.length} image{g.images.length === 1 ? "" : "s"}
                 </span>
+              </button>
+              {g.kind === "doc" && g.ref && (
+                <Link
+                  href={`/docs/${g.ref.documentId}`}
+                  className="flex shrink-0 items-center gap-0.5 font-normal text-muted-foreground hover:text-foreground"
+                  title="Open document"
+                >
+                  Open <ArrowUpRight className="h-3 w-3" />
+                </Link>
               )}
-              <span className="ml-auto font-normal text-muted-foreground">
-                {g.images.length} image{g.images.length === 1 ? "" : "s"}
-              </span>
-            </button>
+            </div>
             {!isCollapsed && (
               <div className="mt-2 space-y-1.5 pl-6">
                 {g.images.map((img) => (
@@ -816,6 +833,98 @@ function GroupedImageRow({
             ? img.documentRefs[0].namingCode
             : `${img.usageCount} docs`}
       </span>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Diagrams tab
+// ---------------------------------------------------------------------------
+
+type DiagramEntry = {
+  key: string
+  svg: string
+  caption: string
+  backgroundUrl: string | null
+  documentId: Id<"documents">
+  namingCode: string
+  title: string
+  status: DocumentStatus
+}
+
+// Diagram SVG is app-curated (renderDiagramSvg escapes every label), but strip
+// scripts and inline handlers anyway before dangerouslySetInnerHTML.
+function sanitizeSvg(svg: string): string {
+  return svg
+    .replace(/<script[\s\S]*?<\/script\s*>/gi, "")
+    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+}
+
+function DiagramsTab() {
+  const diagrams = useQuery(api.images.listDiagrams, {}) as
+    | DiagramEntry[]
+    | undefined
+
+  if (diagrams === undefined) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-56 w-full" />
+        ))}
+      </div>
+    )
+  }
+
+  if (diagrams.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed p-10 text-center">
+        <Shapes className="mx-auto h-8 w-8 text-muted-foreground" />
+        <div className="mt-2 text-sm font-medium">No diagrams yet</div>
+        <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+          Diagrams built in any document are collected here. Insert one from
+          the document editor toolbar.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-muted-foreground">
+        {diagrams.length} diagram{diagrams.length === 1 ? "" : "s"} across all
+        documents
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {diagrams.map((d) => (
+          <div
+            key={d.key}
+            className="flex flex-col overflow-hidden rounded-md border bg-card"
+          >
+            <div
+              className="flex min-h-32 items-center justify-center border-b bg-muted/20 p-3 text-foreground [&_svg]:h-auto [&_svg]:max-h-44 [&_svg]:w-full"
+              dangerouslySetInnerHTML={{ __html: sanitizeSvg(d.svg) }}
+            />
+            <div className="flex flex-1 flex-col gap-1.5 p-3">
+              <div className="truncate text-xs font-medium">
+                {d.caption || "Diagram"}
+              </div>
+              <div className="mt-auto flex items-center gap-1.5">
+                <Link
+                  href={`/docs/${d.documentId}`}
+                  className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  <span className="shrink-0 font-mono">{d.namingCode}</span>
+                  <span className="truncate">{d.title}</span>
+                </Link>
+                <StatusBadge
+                  status={d.status}
+                  className="ml-auto shrink-0 px-1.5 py-0 text-[9px]"
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

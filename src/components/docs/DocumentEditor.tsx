@@ -54,6 +54,7 @@ import {
   ChevronDown,
   AlertTriangle,
   Image as DiagramIcon,
+  Info,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -75,6 +76,89 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
+
+// TipTap StarterKit defaults — listed here so the hint stays honest. If an
+// extension's binding changes, update this list.
+const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
+  {
+    title: "Text",
+    items: [
+      ["Bold", "Ctrl+B"],
+      ["Italic", "Ctrl+I"],
+      ["Strikethrough", "Ctrl+Shift+S"],
+      ["Inline code", "Ctrl+E"],
+    ],
+  },
+  {
+    title: "Blocks",
+    items: [
+      ["Heading 1", "Ctrl+Alt+1"],
+      ["Heading 2", "Ctrl+Alt+2"],
+      ["Heading 3", "Ctrl+Alt+3"],
+      ["Paragraph", "Ctrl+Alt+0"],
+      ["Bullet list", "Ctrl+Shift+8"],
+      ["Numbered list", "Ctrl+Shift+7"],
+      ["Quote", "Ctrl+Shift+B"],
+      ["Code block", "Ctrl+Alt+C"],
+    ],
+  },
+  {
+    title: "General",
+    items: [
+      ["Undo", "Ctrl+Z"],
+      ["Redo", "Ctrl+Y"],
+      ["Block menu", "/ on an empty line"],
+    ],
+  },
+]
+
+function ShortcutsHint() {
+  return (
+    <HoverCard openDelay={100} closeDelay={150}>
+      <HoverCardTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 text-muted-foreground"
+          title="Keyboard shortcuts"
+        >
+          <Info className="h-4 w-4" />
+        </Button>
+      </HoverCardTrigger>
+      <HoverCardContent align="end" className="w-72 p-3">
+        <div className="space-y-3">
+          <p className="text-xs font-semibold">Keyboard shortcuts</p>
+          {SHORTCUT_GROUPS.map((group) => (
+            <div key={group.title} className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {group.title}
+              </p>
+              <ul className="space-y-0.5">
+                {group.items.map(([label, keys]) => (
+                  <li
+                    key={label}
+                    className="flex items-center justify-between gap-2 text-xs"
+                  >
+                    <span>{label}</span>
+                    <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      {keys}
+                    </kbd>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
 
 interface DocumentEditorProps {
   content: unknown
@@ -598,6 +682,7 @@ export function DocumentEditor({
     logId: string
     anchorId: string
     label: string
+    code?: string
   }) {
     if (!editor) return
     editor.chain().focus().insertLaunchLog(attrs).run()
@@ -904,6 +989,10 @@ export function DocumentEditor({
               </ToolbarGroup>
             </>
           )}
+
+          <ToolbarGroup className={cn(compact && "ml-auto")}>
+            <ShortcutsHint />
+          </ToolbarGroup>
         </div>
       )}
 

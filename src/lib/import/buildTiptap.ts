@@ -28,7 +28,7 @@ const MAX_HEADING_LEVELS = 3
 // Imported images land small (a percentage of the column width). Authors scale
 // up the few that matter rather than shrinking every full-bleed figure. Must be
 // a multiple of 5 — ImageWithRef snaps width to 5% steps.
-const IMPORTED_IMAGE_WIDTH = 40
+const IMPORTED_IMAGE_WIDTH = 35
 // A row is only a heading candidate if it's short — headings aren't paragraphs.
 const MAX_HEADING_CHARS = 120
 // Vertical gap (in multiples of line height) above which we start a new
@@ -207,7 +207,12 @@ function paragraph(text: string): TiptapNode {
 }
 
 function image(imageId: string | null, alt: string): TiptapNode {
-  const attrs: Record<string, unknown> = { src: "", alt, width: IMPORTED_IMAGE_WIDTH }
+  const attrs: Record<string, unknown> = {
+    src: "",
+    alt,
+    width: IMPORTED_IMAGE_WIDTH,
+    align: "center",
+  }
   if (imageId) attrs["data-image-id"] = imageId
   return { type: "image", attrs }
 }

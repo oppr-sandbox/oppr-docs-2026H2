@@ -148,7 +148,7 @@ html, body {
   color: #6b7280;
 }
 .title-main {
-  margin-top: 16pt;
+  margin-top: 12pt;
 }
 .title-main h1 {
   font-size: 24pt;
@@ -157,22 +157,37 @@ html, body {
   margin: 0;
   color: #0f172a;
 }
-.title-code {
-  margin-top: 5pt;
+/* Prominent document-id badge directly under the title. */
+.title-code-badge {
+  display: inline-block;
+  margin-top: 8pt;
   font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
-  font-size: 10pt;
+  font-size: 15pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1pt solid #cbd5e1;
+  border-radius: 4pt;
+  padding: 4pt 10pt;
+}
+.title-edition {
+  margin-top: 6pt;
+  font-size: 9pt;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: #6b7280;
 }
-/* Compact metadata band — kept tight so multiple linked machines plus the
-   revision history and references all fit on the front page. */
+/* Compact metadata band — title page must always fit one page. */
 .title-meta-grid {
-  margin-top: 14pt;
+  margin-top: 12pt;
   border-top: 1pt solid #e5e7eb;
   border-bottom: 1pt solid #e5e7eb;
-  padding: 8pt 0;
+  padding: 7pt 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4pt 18pt;
+  gap: 3pt 18pt;
   font-size: 9pt;
 }
 .title-meta-grid > div {
@@ -190,21 +205,36 @@ html, body {
 }
 .title-meta-grid .v { color: #1f2937; }
 
+/* PPE row — mirrors the in-app PpeBlock: orange-tinted band, white chips. */
 .title-ppe {
-  margin-top: 12pt;
+  margin-top: 10pt;
+  border: 0.6pt solid #fdba74;
+  background: #fff7ed;
+  border-radius: 6pt;
+  padding: 6pt 10pt;
+}
+.title-ppe-label {
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9a3412;
+  margin-bottom: 4pt;
+}
+.title-ppe-items {
   display: flex;
   flex-wrap: wrap;
-  gap: 6pt;
+  gap: 5pt;
 }
-.title-ppe span {
+.title-ppe-items span {
   display: inline-block;
-  padding: 3pt 8pt;
+  padding: 2.5pt 9pt;
   border-radius: 999pt;
-  border: 0.6pt solid #fb923c;
-  background: #fff7ed;
+  border: 0.6pt solid #fdba74;
+  background: #fff;
   color: #9a3412;
   font-size: 8.5pt;
-  text-transform: capitalize;
+  font-weight: 600;
 }
 
 .title-tags {
@@ -237,36 +267,74 @@ html, body {
   color: #0f172a;
 }
 
-/* ---------- Revision block ---------- */
+/* ---------- Front matter ("Document overview" page) ---------- */
+/* Tinted section chips + header rows echo the in-app sidebar cards:
+   emerald = linked machines, indigo = references, sky = linked logs,
+   slate = revision history. */
 
-.revision-block {
-  margin-bottom: 18pt;
-}
-.revision-block h2 {
-  margin: 0 0 10pt;
-  font-size: 13pt;
+.fm-title {
+  margin: 0 0 14pt;
+  font-size: 16pt;
   font-weight: 700;
   color: #0f172a;
 }
-.revision-block table {
+.fm-block {
+  margin: 0 0 16pt;
+  page-break-inside: avoid;
+}
+.fm-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 5pt;
+  margin-bottom: 6pt;
+  padding: 2.5pt 9pt;
+  border-radius: 999pt;
+  border: 0.6pt solid;
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.fm-block table {
   width: 100%;
   border-collapse: collapse;
   font-size: 9.5pt;
 }
-.revision-block th, .revision-block td {
+.fm-block th, .fm-block td {
   border: 0.5pt solid #d1d5db;
   padding: 5pt 8pt;
   text-align: left;
   vertical-align: top;
 }
-.revision-block th {
-  background: #f8fafc;
+.fm-block th {
   font-weight: 700;
-  color: #475569;
   text-transform: uppercase;
   font-size: 8pt;
   letter-spacing: 0.06em;
 }
+.fm-block code {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 9pt;
+}
+
+.fm-slate .fm-head { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+.fm-slate .fm-head::before { content: "↺"; font-size: 9pt; }
+.fm-slate th { background: #f8fafc; color: #475569; }
+
+.fm-emerald .fm-head { background: #ecfdf5; color: #065f46; border-color: #6ee7b7; }
+.fm-emerald .fm-head::before { content: "⚙"; color: #059669; }
+.fm-emerald th { background: #ecfdf5; color: #047857; }
+.fm-emerald code { color: #047857; }
+
+.fm-indigo .fm-head { background: #eef2ff; color: #3730a3; border-color: #a5b4fc; }
+.fm-indigo .fm-head::before { content: "❡"; color: #6366f1; }
+.fm-indigo th { background: #eef2ff; color: #4338ca; }
+.fm-indigo code { color: #4338ca; }
+
+.fm-sky .fm-head { background: #f0f9ff; color: #075985; border-color: #7dd3fc; }
+.fm-sky .fm-head::before { content: "▶"; font-size: 7pt; color: #0284c7; }
+.fm-sky th { background: #f0f9ff; color: #0369a1; }
+.fm-sky code { color: #0369a1; }
 
 /* ---------- Body content ---------- */
 
@@ -397,16 +465,17 @@ html, body {
   justify-content: center;
 }
 
+/* PPE row — mirrors the in-app PpeBlock: orange band, white bordered chips. */
 .doc-body [data-ppe-block] {
-  border: 0.6pt solid #fb923c;
+  border: 0.6pt solid #fdba74;
   background: #fff7ed;
-  border-radius: 4pt;
+  border-radius: 6pt;
   padding: 6pt 10pt;
   margin: 8pt 0 10pt;
   page-break-inside: avoid;
 }
 .doc-body [data-ppe-block] .label {
-  font-size: 8pt;
+  font-size: 7.5pt;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -415,12 +484,14 @@ html, body {
 }
 .doc-body [data-ppe-block] .items { display: flex; flex-wrap: wrap; gap: 5pt; }
 .doc-body [data-ppe-block] .items span {
-  background: #fed7aa;
+  display: inline-block;
+  background: #fff;
+  border: 0.6pt solid #fdba74;
   color: #9a3412;
-  padding: 2pt 8pt;
-  border-radius: 99pt;
+  padding: 2.5pt 9pt;
+  border-radius: 999pt;
   font-size: 9pt;
-  text-transform: capitalize;
+  font-weight: 600;
 }
 
 .doc-body [data-diagram-block] {
@@ -489,42 +560,6 @@ html, body {
   color: #6366f1;
 }
 
-/* References & related documents (auto-generated) */
-.reference-block {
-  margin-top: 18pt;
-  margin-bottom: 18pt;
-}
-.reference-block h2 {
-  margin: 0 0 10pt;
-  font-size: 13pt;
-  font-weight: 700;
-  color: #0f172a;
-}
-.reference-block table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 9.5pt;
-}
-.reference-block th, .reference-block td {
-  border: 0.5pt solid #d1d5db;
-  padding: 5pt 8pt;
-  text-align: left;
-  vertical-align: top;
-}
-.reference-block th {
-  background: #f8fafc;
-  font-weight: 700;
-  color: #475569;
-  text-transform: uppercase;
-  font-size: 8pt;
-  letter-spacing: 0.06em;
-}
-.reference-block code {
-  font-family: ui-monospace, monospace;
-  font-size: 9pt;
-  color: #4338ca;
-}
-
 /* Embedded PDF attachment (rasterised pages) */
 .pdf-attachment {
   margin-top: 14pt;
@@ -554,42 +589,6 @@ html, body {
   background: #f8fafc;
   font-size: 10pt;
   color: #475569;
-}
-
-/* Linked machines block — same table format as revision / references. */
-.asset-list-block {
-  margin-top: 16pt;
-  margin-bottom: 16pt;
-}
-.asset-list-block h2 {
-  margin: 0 0 10pt;
-  font-size: 13pt;
-  font-weight: 700;
-  color: #0f172a;
-}
-.asset-list-block table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 9.5pt;
-}
-.asset-list-block th, .asset-list-block td {
-  border: 0.5pt solid #d1d5db;
-  padding: 5pt 8pt;
-  text-align: left;
-  vertical-align: top;
-}
-.asset-list-block th {
-  background: #f8fafc;
-  font-weight: 700;
-  color: #475569;
-  text-transform: uppercase;
-  font-size: 8pt;
-  letter-spacing: 0.06em;
-}
-.asset-list-block code {
-  font-family: ui-monospace, monospace;
-  font-size: 9pt;
-  color: #047857;
 }
 
 /* Watermark — repeats on every page via fixed positioning */

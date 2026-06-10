@@ -7,7 +7,7 @@ import {
   QueryCtx,
 } from "./_generated/server"
 import { requireUser, requireUserId } from "./lib/auth"
-import { walkBodyImages } from "./lib/imageWalker"
+import { walkBodyDiagrams, walkBodyImages } from "./lib/imageWalker"
 
 const sourceValidator = v.union(v.literal("upload"), v.literal("url"))
 
@@ -15,6 +15,7 @@ type ImageDocRef = {
   documentId: Id<"documents">
   namingCode: string
   title: string
+  status: Doc<"documents">["status"]
 }
 
 async function attachUsageRefs(
@@ -43,6 +44,7 @@ async function attachUsageRefs(
           documentId: doc._id,
           namingCode: doc.namingCode,
           title: doc.title,
+          status: doc.status,
         })
       }
       out.sort((a, b) => a.namingCode.localeCompare(b.namingCode))
@@ -145,6 +147,56 @@ export const urlsFor = query({
       result[id] = img.storageId ? await ctx.storage.getUrl(img.storageId) : null
     }
     return result
+  },
+})
+
+// Walks each document's current-version tiptap body for diagram nodes. The
+// diagram SVG is cached in the node attrs (rendered by renderDiagramSvg, the
+// app's trust boundary) so no re-rendering is needed here. Background images
+// are referenced inside the SVG by their storage URL, so the SVG is
+// self-contained; backgroundUrl is surfaced separately for the UI.
+export const listDiagrams = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx)
+    const docs = await ctx.db.query("documents").take(500)
+    const out: Array<{
+      key: string
+      svg: string
+      caption: string
+      backgroundUrl: string | null
+      documentId: Id<"documents">
+      namingCode: string
+      title: string
+      status: Doc<"documents">["status"]
+    }> = []
+    for (const doc of docs) {
+      const ver = await ctx.db
+        .query("documentVersions")
+        .withIndex("by_documentId_and_version", (q) =>
+          q.eq("documentId", doc._id).eq("version", doc.currentVersion),
+        )
+        .first()
+      if (!ver || ver.bodyKind !== "tiptap" || !ver.bodyJson) continue
+      const refs = walkBodyDiagrams(ver.bodyJson)
+      refs.forEach((d, i) => {
+        out.push({
+          key: `${doc._id}:${i}`,
+          svg: d.svg,
+          caption: d.caption,
+          backgroundUrl: d.backgroundUrl,
+          documentId: doc._id,
+          namingCode: doc.namingCode,
+          title: doc.title,
+          status: doc.status,
+        })
+      })
+    }
+    out.sort(
+      (a, b) =>
+        a.namingCode.localeCompare(b.namingCode) || a.key.localeCompare(b.key),
+    )
+    return out
   },
 })
 

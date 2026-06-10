@@ -43,18 +43,21 @@ import type { Log } from "@/types"
 
 function LaunchLogNodeView({ node, selected, editor }: NodeViewProps) {
   const label = (node.attrs.label as string) || "(unnamed log)"
+  const code = (node.attrs.code as string) || ""
   const logId = (node.attrs.logId as string) || ""
   const [open, setOpen] = useState(false)
   // Editor mode is "edit" when the editor is editable (authoring) and "read"
   // otherwise (TiptapReadOnly). The modal CTA changes accordingly.
   const mode: "edit" | "read" = editor.isEditable ? "edit" : "read"
+  // Pill styling deliberately mirrors LinkedAssetBlock / ReferenceDocBlock
+  // (same size/weight; sky is this pill's color).
   return (
     <NodeViewWrapper
       as="div"
       data-launch-log
       contentEditable={false}
       className={cn(
-        "my-2 inline-flex items-center gap-2 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-800 shadow-sm transition-colors hover:bg-sky-100 hover:shadow",
+        "my-1 inline-flex items-center gap-1 rounded-md border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-xs font-medium text-sky-800 transition-colors hover:bg-sky-100",
         selected && "ring-2 ring-sky-400 ring-offset-1",
       )}
     >
@@ -64,14 +67,12 @@ function LaunchLogNodeView({ node, selected, editor }: NodeViewProps) {
           e.preventDefault()
           setOpen(true)
         }}
-        className="inline-flex items-center gap-2 text-left"
+        className="inline-flex items-center gap-1 text-left"
         title={mode === "edit" ? "Preview launch-log" : "Open this log"}
       >
-        <Play className="h-3.5 w-3.5 fill-sky-700 text-sky-700" />
-        <span className="text-xs uppercase tracking-wide opacity-70">
-          Launch log
-        </span>
-        <span className="font-semibold">{label}</span>
+        <Play className="h-3 w-3 fill-sky-700 text-sky-700" />
+        {code && <span className="font-mono">{code}</span>}
+        <span>{code ? `— ${label}` : label}</span>
       </button>
       <LaunchLogModal
         open={open}
@@ -93,6 +94,7 @@ declare module "@tiptap/core" {
         logId: string
         anchorId: string
         label: string
+        code?: string
       }) => ReturnType
     }
   }
@@ -122,6 +124,11 @@ export const LaunchLogNode = Node.create({
         parseHTML: (el) => el.getAttribute("data-label") ?? "",
         renderHTML: (attrs) => ({ "data-label": attrs.label }),
       },
+      code: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-code") ?? "",
+        renderHTML: (attrs) => ({ "data-code": attrs.code }),
+      },
     }
   },
 
@@ -144,7 +151,12 @@ export const LaunchLogNode = Node.create({
   addCommands() {
     const commands: Partial<RawCommands> = {
       insertLaunchLog:
-        (attrs: { logId: string; anchorId: string; label: string }) =>
+        (attrs: {
+          logId: string
+          anchorId: string
+          label: string
+          code?: string
+        }) =>
         ({ chain }) => {
           return chain()
             .focus()
@@ -164,7 +176,12 @@ export const LaunchLogNode = Node.create({
 interface LaunchLogPickerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSelect: (attrs: { logId: string; anchorId: string; label: string }) => void
+  onSelect: (attrs: {
+    logId: string
+    anchorId: string
+    label: string
+    code?: string
+  }) => void
 }
 
 export function LaunchLogPicker({
@@ -184,7 +201,9 @@ export function LaunchLogPicker({
     if (!q) return logs
     return logs.filter(
       (l) =>
-        l.name.toLowerCase().includes(q) || l.type.toLowerCase().includes(q),
+        l.name.toLowerCase().includes(q) ||
+        l.type.toLowerCase().includes(q) ||
+        (l.code ?? "").toLowerCase().includes(q),
     )
   }, [logs, query])
 
@@ -193,6 +212,7 @@ export function LaunchLogPicker({
       logId: log.id,
       anchorId: crypto.randomUUID(),
       label: log.name,
+      code: log.code ?? "",
     })
     onOpenChange(false)
     setQuery("")
@@ -204,7 +224,9 @@ export function LaunchLogPicker({
         <DialogHeader>
           <DialogTitle>Insert launch-log block</DialogTitle>
           <DialogDescription>
-            Pick the operational log this section should hand off to.
+            Link an existing operational log — the pill hands the operator off
+            to it, and the log appears under Linked logs in the document
+            details.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -229,6 +251,11 @@ export function LaunchLogPicker({
                   type="button"
                 >
                   <Play className="h-3.5 w-3.5 text-sky-600" />
+                  {log.code && (
+                    <span className="font-mono text-xs text-sky-700">
+                      {log.code}
+                    </span>
+                  )}
                   <span className="font-medium">{log.name}</span>
                   <span className="ml-auto text-xs uppercase text-muted-foreground">
                     {log.type}
@@ -286,11 +313,18 @@ function LaunchLogModal({
                   ? "Preview of what the operator will see when they tap this pill."
                   : "Hand off to the Oppr LOGS module to start this log capture."}
               </DialogDescription>
-              {type && (
-                <div className="mt-1 inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-200">
-                  {type}
-                </div>
-              )}
+              <div className="mt-1 flex items-center gap-1.5">
+                {log?.code && (
+                  <span className="inline-flex items-center rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 font-mono text-[10px] text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-200">
+                    {log.code}
+                  </span>
+                )}
+                {type && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-200">
+                    {type}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </DialogHeader>

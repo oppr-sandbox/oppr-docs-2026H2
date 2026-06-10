@@ -110,8 +110,15 @@ function ImageNodeView({
   }
 
   return (
-    <NodeViewWrapper className="my-2">
-      <div ref={wrapperRef} className={cn("relative flex w-full", alignToFlex(align))}>
+    // draggable + data-drag-handle let ProseMirror own the drag, so dropping
+    // MOVES the node (attrs intact). Without it the browser's native <img>
+    // drag wins and the drop inserts a fresh full-width copy.
+    <NodeViewWrapper className="my-2" draggable={editable ? true : undefined}>
+      <div
+        ref={wrapperRef}
+        data-drag-handle={editable ? "" : undefined}
+        className={cn("relative flex w-full", alignToFlex(align))}
+      >
         {/* Align toolbar anchored to the OUTER wrapper — never moves with the
             image as it resizes. */}
         {editable && selected && src && (
@@ -154,6 +161,7 @@ function ImageNodeView({
             <img
               src={src}
               alt={alt}
+              draggable={false}
               className={cn(
                 "block w-full rounded-md",
                 editable && selected && "ring-2 ring-primary/40",
@@ -181,6 +189,11 @@ function ImageNodeView({
                 aria-valuemin={WIDTH_MIN}
                 aria-valuemax={WIDTH_MAX}
                 tabIndex={0}
+                draggable={false}
+                onDragStart={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
                 onPointerDown={onHandlePointerDown}
                 onPointerMove={onHandlePointerMove}
                 onPointerUp={onHandlePointerUp}

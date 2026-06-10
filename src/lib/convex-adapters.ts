@@ -42,6 +42,7 @@ export function toLegacyAsset(a: ConvexDoc<"assets">): Asset {
 export function toLegacyLog(l: ConvexDoc<"logs">): Log {
   return {
     id: l._id,
+    code: l.code ?? null,
     name: l.name,
     type: l.type,
   }

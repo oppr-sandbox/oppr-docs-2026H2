@@ -77,6 +77,7 @@ export interface PdfBlob {
 
 export interface Log {
   id: string
+  code: string | null // e.g. "AMS-OPS-LOG-0001" — placeholder LOGS identity
   name: string
   type: string // free text for the showcase
 }

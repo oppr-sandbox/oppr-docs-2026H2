@@ -25,7 +25,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
-import { BookMarked, Factory, Hash } from "lucide-react"
+import { BookMarked, Factory, Hash, Play } from "lucide-react"
 
 export interface MetadataValue {
   title: string
@@ -91,16 +91,26 @@ export interface DerivedRef {
   title: string
 }
 
+export interface DerivedLog {
+  id: string
+  code: string
+  name: string
+}
+
 interface MetadataPanelProps {
   value: MetadataValue
   onChange: (next: MetadataValue) => void
   errors?: Record<string, string>
   /** When set (edit mode), the naming code is fixed and shown read-only. */
   fixedNamingCode?: string
+  /** Opens the "change filing → new document" flow. Only relevant with a fixed code. */
+  onRequestRefile?: () => void
   /** Linked machines derived from the body chips (read-only). */
   derivedAssets?: DerivedAsset[]
   /** Reference documents derived from the body chips (read-only). */
   derivedRefs?: DerivedRef[]
+  /** Launched logs derived from the body launch-log pills (read-only). */
+  derivedLogs?: DerivedLog[]
 }
 
 export function MetadataPanel({
@@ -108,9 +118,12 @@ export function MetadataPanel({
   onChange,
   errors = {},
   fixedNamingCode,
+  onRequestRefile,
   derivedAssets = [],
   derivedRefs = [],
+  derivedLogs = [],
 }: MetadataPanelProps) {
+  const filingLocked = Boolean(fixedNamingCode)
   const me = useQuery(api.users.me)
   const vocab = useQuery(api.naming.listVocabulary)
   const users = useQuery(api.users.list) ?? []
@@ -173,11 +186,13 @@ export function MetadataPanel({
         <div className="grid grid-cols-3 gap-2">
           <CompactSelect
             label="Location"
+            required={!filingLocked}
             display={value.location}
             placeholder="—"
             value={value.location}
             onValueChange={(v) => patch({ location: v })}
-            error={errors["location"]}
+            error={filingLocked ? undefined : errors["location"]}
+            disabled={filingLocked}
           >
             {locations.map((l) => (
               <SelectItem key={l._id} value={l.code}>
@@ -187,11 +202,13 @@ export function MetadataPanel({
           </CompactSelect>
           <CompactSelect
             label="Discipline"
+            required={!filingLocked}
             display={value.discipline}
             placeholder="—"
             value={value.discipline}
             onValueChange={(v) => patch({ discipline: v })}
-            error={errors["discipline"]}
+            error={filingLocked ? undefined : errors["discipline"]}
+            disabled={filingLocked}
           >
             {disciplines.map((d) => (
               <SelectItem key={d._id} value={d.code}>
@@ -204,6 +221,7 @@ export function MetadataPanel({
             display={TYPE_SHORT[value.type]}
             value={value.type}
             onValueChange={(v) => patch({ type: v as DocumentType })}
+            disabled={filingLocked}
           >
             {TYPE_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
@@ -215,7 +233,11 @@ export function MetadataPanel({
 
         <div className="space-y-1">
           <Label className="text-xs font-medium">Naming code</Label>
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 font-mono text-sm">
+          <div
+            className={`flex items-center gap-2 rounded-md border px-3 py-2 font-mono text-sm ${
+              filingLocked ? "bg-muted/70 text-muted-foreground" : "bg-muted/40"
+            }`}
+          >
             <Hash className="h-3.5 w-3.5 text-muted-foreground" />
             {namingCode ? (
               <span>{namingCode}</span>
@@ -225,11 +247,25 @@ export function MetadataPanel({
               </span>
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            {fixedNamingCode
-              ? "Fixed once the document is created."
-              : "Auto-generated on create — next in this location + discipline + type sequence."}
-          </p>
+          {filingLocked ? (
+            <p className="text-[11px] text-muted-foreground">
+              Fixed once the document is created.{" "}
+              {onRequestRefile && (
+                <button
+                  type="button"
+                  className="text-primary hover:underline"
+                  onClick={onRequestRefile}
+                >
+                  Need a different filing? Create a new document…
+                </button>
+              )}
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Auto-generated on create — next in this location + discipline +
+              type sequence.
+            </p>
+          )}
         </div>
       </div>
 
@@ -311,6 +347,17 @@ export function MetadataPanel({
             label: r.title,
           }))}
         />
+        <LinkCard
+          icon={Play}
+          title="Linked logs"
+          tone="sky"
+          emptyHint="None. Insert one in the body (toolbar → Launch log)."
+          items={derivedLogs.map((l) => ({
+            id: l.id,
+            code: l.code,
+            label: l.name,
+          }))}
+        />
       </div>
     </aside>
   )
@@ -325,6 +372,8 @@ function CompactSelect({
   value,
   onValueChange,
   error,
+  disabled,
+  required,
   children,
 }: {
   label: string
@@ -333,12 +382,21 @@ function CompactSelect({
   value: string
   onValueChange: (v: string) => void
   error?: string
+  disabled?: boolean
+  required?: boolean
   children: ReactNode
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-xs font-medium">{label}</Label>
-      <Select value={value || undefined} onValueChange={onValueChange}>
+      <Label className="text-xs font-medium">
+        {label}
+        {required && <span className="ml-0.5 text-destructive">*</span>}
+      </Label>
+      <Select
+        value={value || undefined}
+        onValueChange={onValueChange}
+        disabled={disabled}
+      >
         <SelectTrigger className="h-9 px-2">
           <span className="truncate font-mono text-xs">
             {display || <span className="text-muted-foreground">{placeholder}</span>}
@@ -428,6 +486,30 @@ function RoleSelect({
   )
 }
 
+const LINK_CARD_TONES = {
+  emerald: {
+    card: "border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-950/20",
+    head: "text-emerald-700 dark:text-emerald-300",
+    icon: "text-emerald-600",
+    item: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100",
+    label: "text-emerald-700/80",
+  },
+  indigo: {
+    card: "border-indigo-200 bg-indigo-50/50 dark:border-indigo-900/40 dark:bg-indigo-950/20",
+    head: "text-indigo-700 dark:text-indigo-300",
+    icon: "text-indigo-600",
+    item: "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-100",
+    label: "text-indigo-700/80",
+  },
+  sky: {
+    card: "border-sky-200 bg-sky-50/50 dark:border-sky-900/40 dark:bg-sky-950/20",
+    head: "text-sky-700 dark:text-sky-300",
+    icon: "text-sky-600",
+    item: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-100",
+    label: "text-sky-700/80",
+  },
+} as const
+
 function LinkCard({
   icon: Icon,
   title,
@@ -437,25 +519,16 @@ function LinkCard({
 }: {
   icon: typeof Factory
   title: string
-  tone: "emerald" | "indigo"
+  tone: keyof typeof LINK_CARD_TONES
   emptyHint: string
   items: { id: string; code: string; label: string }[]
 }) {
-  const cardTone =
-    tone === "emerald"
-      ? "border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
-      : "border-indigo-200 bg-indigo-50/50 dark:border-indigo-900/40 dark:bg-indigo-950/20"
-  const headTone =
-    tone === "emerald"
-      ? "text-emerald-700 dark:text-emerald-300"
-      : "text-indigo-700 dark:text-indigo-300"
-  const iconTone = tone === "emerald" ? "text-emerald-600" : "text-indigo-600"
-  const itemTone =
-    tone === "emerald"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100"
-      : "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-100"
-  const labelTone =
-    tone === "emerald" ? "text-emerald-700/80" : "text-indigo-700/80"
+  const tones = LINK_CARD_TONES[tone]
+  const cardTone = tones.card
+  const headTone = tones.head
+  const iconTone = tones.icon
+  const itemTone = tones.item
+  const labelTone = tones.label
   return (
     <div className={`space-y-1.5 rounded-md border p-2.5 ${cardTone}`}>
       <div className="flex items-center gap-1.5">
