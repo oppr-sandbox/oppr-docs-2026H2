@@ -86,6 +86,7 @@ export function PublishToPdfDialog({
   const allDocs = useQuery(api.documents.list, open ? {} : "skip")
   const docTypes = useQuery(api.namingTypes.list, open ? {} : "skip")
   const ppeCatalog = useQuery(api.ppe.list, open ? {} : "skip")
+  const ppeLanguage = useQuery(api.ppe.getLanguage, open ? {} : "skip")
 
   const resolved = useMemo(() => {
     if (!docResult || !versionResult) return null
@@ -321,10 +322,39 @@ export function PublishToPdfDialog({
     }
   }
 
+  // Fetch each PPE pictogram from Convex storage and base64 it, keyed by slug.
+  // The print popup auto-prints shortly after load and races remote loads, so
+  // images must be self-contained. Items without a stored image are skipped and
+  // fall back to the bundled SVG in buildPrintDoc.
+  async function inlinePpeImages(): Promise<Record<string, string>> {
+    const out: Record<string, string> = {}
+    await Promise.all(
+      (ppeCatalog ?? [])
+        .filter((p) => p.imageUrl)
+        .map(async (p) => {
+          try {
+            const res = await fetch(p.imageUrl as string)
+            if (!res.ok) return
+            const blob = await res.blob()
+            out[p.slug] = await new Promise<string>((resolve, reject) => {
+              const fr = new FileReader()
+              fr.onload = () => resolve(String(fr.result))
+              fr.onerror = () => reject(fr.error)
+              fr.readAsDataURL(blob)
+            })
+          } catch {
+            // fall back to the SVG pictogram
+          }
+        }),
+    )
+    return out
+  }
+
   function buildHtml(
     pdfPagesByStorageId: Record<string, string[]>,
     diagramBgDataUrls: Record<string, string>,
     logoDataUrl: string | null,
+    ppeImageBySlug: Record<string, string>,
   ): string | null {
     if (!resolved) return null
     if (resolved.version.body_kind === "pdf") {
@@ -346,10 +376,13 @@ export function PublishToPdfDialog({
         }
       : null
     const typeLabel = docTypes?.find((t) => t.slug === resolved.doc.type)?.label
+    const lang = ppeLanguage === "nl" ? "nl" : "en"
     const ppeEntries = (ppeCatalog ?? []).map((p) => ({
       slug: p.slug,
-      label: p.label,
+      label:
+        (lang === "nl" ? p.labelNl || p.label : p.labelEn || p.label) || p.label,
       pictogramId: p.pictogramId,
+      imageDataUrl: ppeImageBySlug[p.slug],
     }))
     return buildPrintDoc({
       doc: resolved.doc,
@@ -383,12 +416,13 @@ export function PublishToPdfDialog({
     }
     setPreparing(true)
     try {
-      const [pages, bgMap, logoDataUrl] = await Promise.all([
+      const [pages, bgMap, logoDataUrl, ppeImageBySlug] = await Promise.all([
         rasterisePdfs(),
         inlineDiagramBackgrounds(),
         inlineLogo(),
+        inlinePpeImages(),
       ])
-      const html = buildHtml(pages, bgMap, logoDataUrl)
+      const html = buildHtml(pages, bgMap, logoDataUrl, ppeImageBySlug)
       if (!html) {
         win.close()
         return
@@ -409,13 +443,9 @@ export function PublishToPdfDialog({
   const hasFrontMatter =
     options.revisionBlock ||
     options.referencesBlock ||
-    launchLogCount > 0 ||
-    (resolved?.doc.assets.length ?? 0) > 0
-  const estimatedPages = estimatePageCount(
-    resolved?.version.body_json,
-    options,
-    hasFrontMatter,
-  )
+    (options.logsBlock && launchLogCount > 0) ||
+    (options.machinesBlock && (resolved?.doc.assets.length ?? 0) > 0)
+  const estimatedPages = estimatePageCount(resolved?.version.body_json, options)
   const busy =
     preparing ||
     coverSettings === undefined ||
@@ -468,17 +498,20 @@ export function PublishToPdfDialog({
             <ToggleRow
               id="title-page"
               label="Title page"
-              sublabel="One-page cover with type, doc ID, owner, dates, PPE."
+              sublabel="One-page cover with type, doc ID, owner, dates."
               value={options.titlePage}
               onChange={(v) => setOptions((o) => ({ ...o, titlePage: v }))}
+            />
+            <ToggleRow
+              id="show-ppe"
+              label="Show required PPE"
+              sublabel="Small PPE band on the title page. In the body it stays large."
+              value={options.showPpe}
+              onChange={(v) => setOptions((o) => ({ ...o, showPpe: v }))}
             />
           </OptionGroup>
 
           <OptionGroup title="Document overview">
-            <AlwaysOnRow
-              label="Linked machines & logs"
-              sublabel="Machines and launched logs referenced in the body. Always included."
-            />
             <ToggleRow
               id="rev-block"
               label="Revision history"
@@ -487,11 +520,25 @@ export function PublishToPdfDialog({
               onChange={(v) => setOptions((o) => ({ ...o, revisionBlock: v }))}
             />
             <ToggleRow
+              id="machines-block"
+              label="Linked machines"
+              sublabel="Machines linked to this document."
+              value={options.machinesBlock}
+              onChange={(v) => setOptions((o) => ({ ...o, machinesBlock: v }))}
+            />
+            <ToggleRow
               id="references-block"
               label="References table"
               sublabel="Built from the reference-document chips in the body."
               value={options.referencesBlock}
               onChange={(v) => setOptions((o) => ({ ...o, referencesBlock: v }))}
+            />
+            <ToggleRow
+              id="logs-block"
+              label="Linked logs"
+              sublabel="Launch logs referenced in the body."
+              value={options.logsBlock}
+              onChange={(v) => setOptions((o) => ({ ...o, logsBlock: v }))}
             />
             {pdfStorageIds.length > 0 && (
               <div className="flex items-start gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
@@ -600,18 +647,6 @@ function ToggleRow({
   )
 }
 
-function AlwaysOnRow({ label, sublabel }: { label: string; sublabel: string }) {
-  return (
-    <div className="flex items-start gap-3 rounded-md px-1 py-1">
-      <Switch checked disabled className="mt-0.5" />
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium">{label}</div>
-        <div className="text-[11px] text-muted-foreground">{sublabel}</div>
-      </div>
-    </div>
-  )
-}
-
 function WmOption({ value, label }: { value: string; label: string }) {
   return (
     <Label
@@ -624,14 +659,10 @@ function WmOption({ value, label }: { value: string; label: string }) {
   )
 }
 
-function estimatePageCount(
-  body: unknown,
-  opts: PdfExportOptions,
-  hasFrontMatter: boolean,
-): number {
+function estimatePageCount(body: unknown, opts: PdfExportOptions): number {
   let pages = 0
+  // The overview tables now live on the title page, so they don't add a page.
   if (opts.titlePage) pages += 1
-  if (hasFrontMatter) pages += 1
   // Naive: count headings / paragraphs and divide. The browser's actual
   // pagination is what matters; this is a rough estimate for the dialog hint.
   const blocks = countBlocks(body)

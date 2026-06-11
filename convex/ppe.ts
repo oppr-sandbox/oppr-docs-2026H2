@@ -4,28 +4,63 @@ import { requireUser, requireUserId } from "./lib/auth"
 
 // Factory PPE catalog (20). The first eight slugs match the original hardcoded
 // PPE node ids so documents authored before the configurator keep rendering.
+// `mCode` is the ISO 7010 mandatory-sign code whose official pictogram is
+// fetched and stored by ppeImages.ts; slugs without one fall back to the
+// bundled SVG (pictogramId). labelNl is the Dutch caption for the NL/EN toggle.
 export const FACTORY_PPE = [
-  { slug: "hardhat", label: "Hard hat", pictogramId: "hard_hat", description: "Protects the head from falling objects and impacts." },
-  { slug: "glasses", label: "Safety glasses", pictogramId: "eye_protection", description: "Eye protection from dust, splashes and debris." },
-  { slug: "gloves", label: "Gloves", pictogramId: "gloves", description: "Hand protection against cuts, abrasion and contaminants." },
-  { slug: "boots", label: "Safety boots", pictogramId: "footwear", description: "Steel-toe with anti-slip soles. Required on the floor." },
-  { slug: "hi-vis", label: "Hi-vis vest", pictogramId: "hi_vis", description: "Required wherever forklifts or vehicles operate." },
-  { slug: "ear-pro", label: "Ear protection", pictogramId: "hearing", description: "Required in zones above 85 dB(A)." },
-  { slug: "mask", label: "Respirator", pictogramId: "respirator", description: "Particulate/vapour filtration as specified per task." },
-  { slug: "dust-mask", label: "Dust mask", pictogramId: "face_mask", description: "Disposable mask for non-toxic particulates." },
-  { slug: "clothing", label: "Protective clothing", pictogramId: "protective_clothing", description: "Body-covering protective clothing for the task." },
-  { slug: "wash-hands", label: "Wash your hands", pictogramId: "wash_hands", description: "Hand hygiene required before and after the task." },
-  { slug: "face-shield", label: "Face shield", pictogramId: "face_shield", description: "Full-face protection against splashes and sparks." },
-  { slug: "harness", label: "Safety harness", pictogramId: "harness", description: "Fall-arrest harness for work at height." },
-  { slug: "read-first", label: "Read the instructions", pictogramId: "read_instructions", description: "Read the procedure before starting." },
-  { slug: "handrail", label: "Use the handrail", pictogramId: "handrail", description: "Hold the handrail on stairs and platforms." },
-  { slug: "hair-net", label: "Hair net", pictogramId: "hair_net", description: "Contain hair in food or clean areas." },
-  { slug: "gas-detector", label: "Use gas detector", pictogramId: "gas_detector", description: "Carry a personal gas detector in this zone." },
-  { slug: "life-jacket", label: "Life jacket", pictogramId: "life_jacket", description: "Required near open water." },
-  { slug: "lab-coat", label: "Lab coat", pictogramId: "lab_coat", description: "Wear a lab coat in the laboratory." },
-  { slug: "eye-ear", label: "Eye + ear protection", pictogramId: "eye_ear", description: "Both eye and hearing protection required." },
-  { slug: "general", label: "General mandatory action", pictogramId: "general_mandatory", description: "A mandatory action applies — see local signage." },
+  { slug: "hardhat", label: "Hard hat", labelNl: "Veiligheidshelm verplicht", pictogramId: "hard_hat", mCode: "M014", description: "Protects the head from falling objects and impacts." },
+  { slug: "glasses", label: "Safety glasses", labelNl: "Veiligheidsbril verplicht", pictogramId: "eye_protection", mCode: "M004", description: "Eye protection from dust, splashes and debris." },
+  { slug: "gloves", label: "Gloves", labelNl: "Veiligheidshandschoenen verplicht", pictogramId: "gloves", mCode: "M009", description: "Hand protection against cuts, abrasion and contaminants." },
+  { slug: "boots", label: "Safety boots", labelNl: "Veiligheidsschoenen verplicht", pictogramId: "footwear", mCode: "M008", description: "Steel-toe with anti-slip soles. Required on the floor." },
+  { slug: "hi-vis", label: "Hi-vis vest", labelNl: "Waarschuwingshesje verplicht", pictogramId: "hi_vis", mCode: "M015", description: "Required wherever forklifts or vehicles operate." },
+  { slug: "ear-pro", label: "Ear protection", labelNl: "Gehoorbescherming verplicht", pictogramId: "hearing", mCode: "M003", description: "Required in zones above 85 dB(A)." },
+  { slug: "mask", label: "Respirator", labelNl: "Adembescherming verplicht", pictogramId: "respirator", mCode: "M017", description: "Particulate/vapour filtration as specified per task." },
+  { slug: "dust-mask", label: "Dust mask", labelNl: "Masker verplicht", pictogramId: "face_mask", mCode: "M016", description: "Disposable mask for non-toxic particulates." },
+  { slug: "clothing", label: "Protective clothing", labelNl: "Beschermende kleding verplicht", pictogramId: "protective_clothing", mCode: "M010", description: "Body-covering protective clothing for the task." },
+  { slug: "wash-hands", label: "Wash your hands", labelNl: "Handen wassen verplicht", pictogramId: "wash_hands", mCode: "M011", description: "Hand hygiene required before and after the task." },
+  { slug: "face-shield", label: "Face shield", labelNl: "Gelaatsscherm verplicht", pictogramId: "face_shield", mCode: "M013", description: "Full-face protection against splashes and sparks." },
+  { slug: "harness", label: "Safety harness", labelNl: "Veiligheidsharnas verplicht", pictogramId: "harness", mCode: "M018", description: "Fall-arrest harness for work at height." },
+  { slug: "read-first", label: "Read the instructions", labelNl: "Gebruiksaanwijzing lezen", pictogramId: "read_instructions", mCode: "M002", description: "Read the procedure before starting." },
+  { slug: "handrail", label: "Use the handrail", labelNl: "Trapleuning vasthouden", pictogramId: "handrail", mCode: "M012", description: "Hold the handrail on stairs and platforms." },
+  { slug: "hair-net", label: "Hair net", labelNl: "Haarnet verplicht", pictogramId: "hair_net", mCode: null, description: "Contain hair in food or clean areas." },
+  { slug: "gas-detector", label: "Use gas detector", labelNl: "Gasdetector gebruiken", pictogramId: "gas_detector", mCode: null, description: "Carry a personal gas detector in this zone." },
+  { slug: "life-jacket", label: "Life jacket", labelNl: "Reddingsvest verplicht", pictogramId: "life_jacket", mCode: "M053", description: "Required near open water." },
+  { slug: "lab-coat", label: "Lab coat", labelNl: "Laboratoriumjas verplicht", pictogramId: "lab_coat", mCode: "M010", description: "Wear a lab coat in the laboratory." },
+  { slug: "eye-ear", label: "Eye + ear protection", labelNl: "Oog- en gehoorbescherming", pictogramId: "eye_ear", mCode: null, description: "Both eye and hearing protection required." },
+  { slug: "general", label: "General mandatory action", labelNl: "Algemeen gebod", pictogramId: "general_mandatory", mCode: "M001", description: "A mandatory action applies — see local signage." },
 ] as const
+
+// slug → ISO 7010 mandatory code, consumed by ppeImages.ts to fetch artwork.
+export const PPE_MCODE: Record<string, string> = Object.fromEntries(
+  FACTORY_PPE.filter((p) => p.mCode).map((p) => [p.slug, p.mCode as string]),
+)
+
+const LANG_KEY = "ppe_language"
+
+export const getLanguage = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx)
+    const row = await ctx.db
+      .query("meta")
+      .withIndex("by_key", (q) => q.eq("key", LANG_KEY))
+      .unique()
+    return row?.value === "nl" ? "nl" : "en"
+  },
+})
+
+export const setLanguage = mutation({
+  args: { language: v.union(v.literal("en"), v.literal("nl")) },
+  handler: async (ctx, args) => {
+    await requireUserId(ctx)
+    const row = await ctx.db
+      .query("meta")
+      .withIndex("by_key", (q) => q.eq("key", LANG_KEY))
+      .unique()
+    if (row) await ctx.db.patch(row._id, { value: args.language })
+    else await ctx.db.insert("meta", { key: LANG_KEY, value: args.language })
+  },
+})
 
 export const list = query({
   args: {},
@@ -33,7 +68,12 @@ export const list = query({
     await requireUser(ctx)
     const rows = await ctx.db.query("ppeItems").take(200)
     rows.sort((a, b) => a.sortOrder - b.sortOrder)
-    return rows
+    return await Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        imageUrl: r.storageId ? await ctx.storage.getUrl(r.storageId) : null,
+      })),
+    )
   },
 })
 
@@ -48,8 +88,11 @@ export const seedIfEmpty = mutation({
       await ctx.db.insert("ppeItems", {
         slug: p.slug,
         label: p.label,
+        labelEn: p.label,
+        labelNl: p.labelNl,
         description: p.description,
         pictogramId: p.pictogramId,
+        storageId: null,
         active: true,
         builtIn: true,
         sortOrder: i,
@@ -70,6 +113,7 @@ function slugify(label: string): string {
 export const add = mutation({
   args: {
     label: v.string(),
+    labelNl: v.optional(v.string()),
     description: v.optional(v.string()),
     pictogramId: v.string(),
   },
@@ -89,8 +133,11 @@ export const add = mutation({
     return await ctx.db.insert("ppeItems", {
       slug,
       label,
+      labelEn: label,
+      labelNl: args.labelNl?.trim() || null,
       description: args.description?.trim() || null,
       pictogramId: args.pictogramId,
+      storageId: null,
       active: true,
       builtIn: false,
       sortOrder: maxOrder + 1,
@@ -102,6 +149,7 @@ export const update = mutation({
   args: {
     id: v.id("ppeItems"),
     label: v.optional(v.string()),
+    labelNl: v.optional(v.string()),
     description: v.optional(v.string()),
     pictogramId: v.optional(v.string()),
   },
@@ -110,7 +158,11 @@ export const update = mutation({
     const row = await ctx.db.get(args.id)
     if (!row) throw new Error("PPE item not found")
     const patch: Record<string, unknown> = {}
-    if (args.label !== undefined && args.label.trim()) patch.label = args.label.trim()
+    if (args.label !== undefined && args.label.trim()) {
+      patch.label = args.label.trim()
+      patch.labelEn = args.label.trim()
+    }
+    if (args.labelNl !== undefined) patch.labelNl = args.labelNl.trim() || null
     if (args.description !== undefined)
       patch.description = args.description.trim() || null
     if (args.pictogramId !== undefined) patch.pictogramId = args.pictogramId

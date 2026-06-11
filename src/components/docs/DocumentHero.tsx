@@ -12,8 +12,7 @@ import { StatusBadge } from "./StatusBadge"
 import { TypeBadge } from "./TypeBadge"
 import type { Asset, Doc, User } from "@/types"
 import { cn } from "@/lib/utils"
-import { usePpeCatalog } from "@/lib/ppeCatalog"
-import { ppeDataUrl } from "@/lib/ppePictograms"
+import { usePpeCatalog, ppeImageSrc } from "@/lib/ppeCatalog"
 
 interface DocumentHeroProps {
   doc: Doc
@@ -129,10 +128,11 @@ function HeroPpeSection({ ppeItems }: { ppeItems: string[] }) {
                 className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-100"
               >
                 <img
-                  src={ppeDataUrl(meta.pictogramId)}
+                  src={ppeImageSrc(meta)}
                   alt=""
                   width={14}
                   height={14}
+                  className="object-contain"
                   draggable={false}
                 />
                 {meta.label}

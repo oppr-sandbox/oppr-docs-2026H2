@@ -15,8 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { usePpeCatalog } from "@/lib/ppeCatalog"
-import { ppeDataUrl } from "@/lib/ppePictograms"
+import { usePpeCatalog, ppeImageSrc } from "@/lib/ppeCatalog"
 import type { Asset } from "@/types"
 
 interface MobileDocSummaryProps {
@@ -54,7 +53,7 @@ export function MobileDocSummary({
                     aria-label={`${meta.label} info`}
                     className="inline-flex h-7 items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-1.5 text-[10px] font-medium text-blue-900 transition-colors hover:bg-blue-100 active:scale-95 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-100"
                   >
-                    <img src={ppeDataUrl(meta.pictogramId)} alt="" width={14} height={14} draggable={false} />
+                    <img src={ppeImageSrc(meta)} alt="" width={14} height={14} className="object-contain" draggable={false} />
                     {meta.label}
                   </button>
                 </PopoverTrigger>
@@ -66,7 +65,7 @@ export function MobileDocSummary({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-[12px] font-semibold">
-                      <img src={ppeDataUrl(meta.pictogramId)} alt="" width={16} height={16} draggable={false} />
+                      <img src={ppeImageSrc(meta)} alt="" width={16} height={16} className="object-contain" draggable={false} />
                       {meta.label}
                     </div>
                     <button

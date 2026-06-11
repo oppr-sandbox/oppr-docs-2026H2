@@ -18,6 +18,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react"
 import { Check, CornerDownLeft, HardHat, Plus, Trash2 } from "lucide-react"
+import { ppeImageSrc } from "@/lib/ppeCatalog"
 import {
   Dialog,
   DialogContent,
@@ -34,19 +35,32 @@ import {
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { usePpeCatalog } from "@/lib/ppeCatalog"
-import { ppeDataUrl } from "@/lib/ppePictograms"
 
 // A PPE item is now any catalog slug.
 export type PpeItem = string
 
-function Pictogram({ id, size = 16 }: { id: string; size?: number }) {
+// Block image sizes. "lg" is deliberately modest — readable without dominating
+// the page. The title-page band uses its own fixed 16px regardless of this.
+export type PpeSize = "sm" | "md" | "lg"
+const PICTO_PX: Record<PpeSize, number> = { sm: 18, md: 28, lg: 44 }
+function normSize(v: unknown): PpeSize {
+  return v === "sm" || v === "lg" ? v : "md"
+}
+
+function Pictogram({
+  meta,
+  size = 16,
+}: {
+  meta: { imageUrl?: string | null; pictogramId: string }
+  size?: number
+}) {
   return (
     <img
-      src={ppeDataUrl(id)}
+      src={ppeImageSrc(meta)}
       alt=""
       width={size}
       height={size}
-      className="shrink-0"
+      className="shrink-0 object-contain"
       draggable={false}
     />
   )
@@ -69,6 +83,7 @@ function PpeView({
   selected,
 }: NodeViewProps) {
   const items = parseItems(node.attrs.items as string | undefined)
+  const size = normSize(node.attrs.size)
   const editable = editor?.isEditable ?? false
   const [editOpen, setEditOpen] = useState(false)
   const { active, resolve } = usePpeCatalog()
@@ -102,6 +117,24 @@ function PpeView({
         selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
       )}
     >
+      <div className="flex items-center overflow-hidden rounded border">
+        {(["sm", "md", "lg"] as PpeSize[]).map((s) => (
+          <button
+            key={s}
+            type="button"
+            title={`${s === "sm" ? "Small" : s === "md" ? "Medium" : "Large"} images`}
+            onClick={() => updateAttributes({ size: s })}
+            className={cn(
+              "h-6 w-6 text-[10px] font-semibold uppercase",
+              size === s
+                ? "bg-blue-600 text-white"
+                : "bg-background text-muted-foreground hover:bg-muted",
+            )}
+          >
+            {s === "sm" ? "S" : s === "md" ? "M" : "L"}
+          </button>
+        ))}
+      </div>
       <Popover open={editOpen} onOpenChange={setEditOpen}>
         <PopoverTrigger asChild>
           <button
@@ -133,7 +166,7 @@ function PpeView({
                       : "border-border bg-background text-muted-foreground hover:bg-muted",
                   )}
                 >
-                  <Pictogram id={p.pictogramId} />
+                  <Pictogram meta={p} />
                   <span className="flex-1 truncate">{p.label}</span>
                   {on && <Check className="h-3 w-3" />}
                 </button>
@@ -190,17 +223,22 @@ function PpeView({
       <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-900 dark:text-blue-200">
         Required PPE
       </span>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-end gap-1.5">
         {items.map((slug) => {
           const meta = resolve(slug)
           return (
             <span
               key={slug}
-              className="inline-flex items-center gap-1.5 rounded-full border border-blue-300 bg-white px-2 py-0.5 text-[11px] font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-950/40 dark:text-blue-100"
+              className={cn(
+                "border border-blue-300 bg-white font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-950/40 dark:text-blue-100",
+                size === "lg"
+                  ? "inline-flex w-[88px] flex-col items-center gap-1 rounded-md px-1.5 py-1.5 text-center text-[11px]"
+                  : "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px]",
+              )}
               title={meta.description ?? undefined}
             >
-              <Pictogram id={meta.pictogramId} size={18} />
-              {meta.label}
+              <Pictogram meta={meta} size={PICTO_PX[size]} />
+              <span className={size === "lg" ? "leading-tight" : ""}>{meta.label}</span>
             </span>
           )
         })}
@@ -230,6 +268,11 @@ export const PpeNode = Node.create({
         default: "",
         parseHTML: (el) => el.getAttribute("data-items") ?? "",
         renderHTML: (attrs) => ({ "data-items": attrs.items }),
+      },
+      size: {
+        default: "md",
+        parseHTML: (el) => el.getAttribute("data-size") ?? "md",
+        renderHTML: (attrs) => ({ "data-size": attrs.size }),
       },
     }
   },
@@ -318,7 +361,7 @@ export function PpePicker({
                     : "border-input hover:bg-muted",
                 )}
               >
-                <Pictogram id={p.pictogramId} size={20} />
+                <Pictogram meta={p} size={20} />
                 <span className="flex-1">{p.label}</span>
                 {on && <Check className="h-4 w-4 text-primary" />}
               </button>
@@ -404,7 +447,7 @@ export function PpeQuickPalette({ onInsert, children }: PpeQuickPaletteProps) {
                     : "border-border bg-background text-muted-foreground hover:bg-muted",
                 )}
               >
-                <Pictogram id={p.pictogramId} />
+                <Pictogram meta={p} />
                 <span className="flex-1 truncate">{p.label}</span>
                 {on && <Check className="h-3 w-3" />}
               </button>

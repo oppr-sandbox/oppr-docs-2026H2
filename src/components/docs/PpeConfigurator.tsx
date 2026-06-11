@@ -1,9 +1,10 @@
 // PPE configurator — the Safety tab on the Templates page.
 //
-// Lists every PPE item with its bundled pictogram, lets you toggle which appear
-// in the editor's PPE picker, edit label/description/pictogram, add custom
-// items, and delete custom ones. Built-in items can be deactivated but not
-// deleted. Self-seeds the factory catalog on first visit.
+// Lists every PPE item with its real ISO 7010 pictogram, lets you toggle which
+// appear in the editor's PPE picker, edit the English + Dutch caption, pick the
+// fallback pictogram, add custom items, and delete custom ones. Built-in items
+// can be deactivated but not deleted. A language switch selects whether the
+// app and exports show the English or Dutch captions. Self-seeds on first visit.
 
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
@@ -24,26 +25,36 @@ import {
 } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { PPE_PICTOGRAM_IDS, ppeDataUrl } from "@/lib/ppePictograms"
+import { ppeImageSrc } from "@/lib/ppeCatalog"
 
 interface PpeRow {
   _id: Id<"ppeItems">
   slug: string
   label: string
+  labelEn?: string | null
+  labelNl?: string | null
   description: string | null
   pictogramId: string
+  imageUrl?: string | null
   active: boolean
   builtIn: boolean
   sortOrder: number
 }
 
-function Pictogram({ id, size = 28 }: { id: string; size?: number }) {
+function Pictogram({
+  meta,
+  size = 28,
+}: {
+  meta: { imageUrl?: string | null; pictogramId: string }
+  size?: number
+}) {
   return (
     <img
-      src={ppeDataUrl(id)}
+      src={ppeImageSrc(meta)}
       alt=""
       width={size}
       height={size}
-      className="shrink-0"
+      className="shrink-0 object-contain"
       draggable={false}
     />
   )
@@ -52,6 +63,8 @@ function Pictogram({ id, size = 28 }: { id: string; size?: number }) {
 export function PpeConfigurator() {
   const rows = useQuery(api.ppe.list) as PpeRow[] | undefined
   const seed = useMutation(api.ppe.seedIfEmpty)
+  const language = useQuery(api.ppe.getLanguage)
+  const setLanguage = useMutation(api.ppe.setLanguage)
 
   useEffect(() => {
     if (rows !== undefined && rows.length === 0) {
@@ -67,17 +80,38 @@ export function PpeConfigurator() {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm">Required PPE</CardTitle>
-        <CardDescription className="text-xs">
-          The personal protective equipment authors can add to a document. Only
-          active items appear in the editor&rsquo;s PPE picker. Built-in items
-          can be switched off but not deleted; add your own below.
-          {rows !== undefined && (
-            <span className="ml-1 font-medium text-foreground">
-              {activeCount} active.
-            </span>
-          )}
-        </CardDescription>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-sm">Required PPE</CardTitle>
+            <CardDescription className="text-xs">
+              The personal protective equipment authors can add to a document.
+              Only active items appear in the editor&rsquo;s PPE picker. Built-in
+              items can be switched off but not deleted; add your own below.
+              {rows !== undefined && (
+                <span className="ml-1 font-medium text-foreground">
+                  {activeCount} active.
+                </span>
+              )}
+            </CardDescription>
+          </div>
+          <div className="flex shrink-0 items-center overflow-hidden rounded-md border">
+            {(["en", "nl"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => void setLanguage({ language: l })}
+                className={cn(
+                  "px-2.5 py-1 text-xs font-semibold uppercase",
+                  (language ?? "en") === l
+                    ? "bg-blue-600 text-white"
+                    : "bg-background text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {rows === undefined ? (
@@ -87,7 +121,7 @@ export function PpeConfigurator() {
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">
             {rows.map((r) => (
-              <PpeItemRow key={r._id} row={r} />
+              <PpeItemRow key={r._id} row={r} language={language ?? "en"} />
             ))}
           </div>
         )}
@@ -97,7 +131,7 @@ export function PpeConfigurator() {
   )
 }
 
-function PpeItemRow({ row }: { row: PpeRow }) {
+function PpeItemRow({ row, language }: { row: PpeRow; language: string }) {
   const setActive = useMutation(api.ppe.setActive)
   const update = useMutation(api.ppe.update)
   const remove = useMutation(api.ppe.remove)
@@ -111,6 +145,10 @@ function PpeItemRow({ row }: { row: PpeRow }) {
     }
   }
 
+  const shown =
+    (language === "nl" ? row.labelNl || row.label : row.labelEn || row.label) ||
+    row.label
+
   return (
     <div
       className={cn(
@@ -119,10 +157,10 @@ function PpeItemRow({ row }: { row: PpeRow }) {
       )}
     >
       <div className="flex items-center gap-2.5">
-        <Pictogram id={row.pictogramId} />
+        <Pictogram meta={row} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium">{row.label}</span>
+            <span className="truncate text-sm font-medium">{shown}</span>
             {row.builtIn && (
               <span className="rounded bg-muted px-1 text-[9px] text-muted-foreground">
                 built-in
@@ -167,15 +205,34 @@ function PpeItemRow({ row }: { row: PpeRow }) {
       </div>
       {editing && (
         <div className="mt-2 space-y-2 border-t pt-2">
-          <Input
-            defaultValue={row.label}
-            className="h-8 text-xs"
-            placeholder="Label"
-            onBlur={(e) =>
-              e.target.value.trim() !== row.label &&
-              void guard(() => update({ id: row._id, label: e.target.value }))
-            }
-          />
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">
+              Label (English)
+            </Label>
+            <Input
+              defaultValue={row.labelEn ?? row.label}
+              className="h-8 text-xs"
+              placeholder="English caption"
+              onBlur={(e) =>
+                e.target.value.trim() !== (row.labelEn ?? row.label) &&
+                void guard(() => update({ id: row._id, label: e.target.value }))
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">
+              Label (Nederlands)
+            </Label>
+            <Input
+              defaultValue={row.labelNl ?? ""}
+              className="h-8 text-xs"
+              placeholder="Dutch caption"
+              onBlur={(e) =>
+                (e.target.value.trim() || null) !== (row.labelNl ?? null) &&
+                void guard(() => update({ id: row._id, labelNl: e.target.value }))
+              }
+            />
+          </div>
           <Input
             defaultValue={row.description ?? ""}
             className="h-8 text-xs"
@@ -187,12 +244,14 @@ function PpeItemRow({ row }: { row: PpeRow }) {
               )
             }
           />
-          <PictogramPicker
-            value={row.pictogramId}
-            onChange={(id) =>
-              void guard(() => update({ id: row._id, pictogramId: id }))
-            }
-          />
+          {!row.imageUrl && (
+            <PictogramPicker
+              value={row.pictogramId}
+              onChange={(id) =>
+                void guard(() => update({ id: row._id, pictogramId: id }))
+              }
+            />
+          )}
         </div>
       )}
     </div>
@@ -202,6 +261,7 @@ function PpeItemRow({ row }: { row: PpeRow }) {
 function AddPpe() {
   const add = useMutation(api.ppe.add)
   const [label, setLabel] = useState("")
+  const [labelNl, setLabelNl] = useState("")
   const [description, setDescription] = useState("")
   const [pictogramId, setPictogramId] = useState(PPE_PICTOGRAM_IDS[0])
   const [busy, setBusy] = useState(false)
@@ -210,8 +270,14 @@ function AddPpe() {
     if (!label.trim()) return
     setBusy(true)
     try {
-      await add({ label: label.trim(), description: description.trim(), pictogramId })
+      await add({
+        label: label.trim(),
+        labelNl: labelNl.trim(),
+        description: description.trim(),
+        pictogramId,
+      })
       setLabel("")
+      setLabelNl("")
       setDescription("")
       setPictogramId(PPE_PICTOGRAM_IDS[0])
     } catch (err) {
@@ -228,11 +294,20 @@ function AddPpe() {
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[10rem] flex-1 space-y-1">
-          <Label className="text-[11px]">Label</Label>
+          <Label className="text-[11px]">Label (English)</Label>
           <Input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="Cut-resistant gloves"
+            className="h-8 text-xs"
+          />
+        </div>
+        <div className="min-w-[10rem] flex-1 space-y-1">
+          <Label className="text-[11px]">Label (Nederlands)</Label>
+          <Input
+            value={labelNl}
+            onChange={(e) => setLabelNl(e.target.value)}
+            placeholder="Snijbestendige handschoenen"
             className="h-8 text-xs"
           />
         </div>

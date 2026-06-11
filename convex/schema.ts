@@ -149,15 +149,21 @@ export default defineSchema({
 
   // ---- PPE catalog ----------------------------------------------------------
   // Configurable required-PPE items shown in the editor's PPE block and on the
-  // Safety tab. `pictogramId` resolves to a bundled ISO-7010-style SVG
-  // (src/lib/ppePictograms.ts). Built-in items can be deactivated, never
+  // Safety tab. `storageId` points at a real ISO 7010 pictogram PNG stored in
+  // Convex (seeded from the public standard via ppeImages.ts); `pictogramId`
+  // is the bundled SVG fallback used until the image is seeded or for custom
+  // items. `labelEn`/`labelNl` carry the bilingual captions; `label` stays as
+  // the legacy/default caption. Built-in items can be deactivated, never
   // deleted; custom items are deletable. The slug is what the ppe TipTap node
   // stores, so the eight original ids are kept as factory slugs.
   ppeItems: defineTable({
     slug: v.string(),
     label: v.string(),
+    labelEn: v.optional(v.union(v.string(), v.null())),
+    labelNl: v.optional(v.union(v.string(), v.null())),
     description: v.union(v.string(), v.null()),
     pictogramId: v.string(),
+    storageId: v.optional(v.union(v.id("_storage"), v.null())),
     active: v.boolean(),
     builtIn: v.boolean(),
     sortOrder: v.number(),

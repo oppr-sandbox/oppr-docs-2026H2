@@ -262,33 +262,30 @@ html, body {
 }
 .ppe-chip img { display: inline-block; width: 13pt; height: 13pt; }
 
-/* Title-page revision history — plain table, no pill. */
-.title-revision { margin-top: 10pt; }
-.title-revision-label {
+/* Title-page document overview — compact tables in a two-column grid so the
+   cover stays on one page. Revision history spans the full width on top. */
+.title-overview {
+  margin-top: 10pt;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8pt 12pt;
+  align-items: start;
+}
+.title-overview .fm-block { margin: 0; }
+.title-overview .revision-block { grid-column: 1 / -1; }
+.title-overview .fm-h {
+  margin-bottom: 3pt;
   font-size: 8pt;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 4pt;
-}
-.title-revision-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 8.5pt;
-}
-.title-revision-table th, .title-revision-table td {
-  border: 0.5pt solid #d1d5db;
-  padding: 3pt 6pt;
-  text-align: left;
-  vertical-align: top;
-}
-.title-revision-table th {
-  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  font-size: 7pt;
-  letter-spacing: 0.06em;
-  background: #f8fafc;
   color: #475569;
 }
+.title-overview .fm-block table { font-size: 8pt; }
+.title-overview .fm-block th, .title-overview .fm-block td {
+  padding: 2.5pt 5pt;
+}
+.title-overview .fm-block th { font-size: 6.5pt; }
+.title-overview .fm-block .fm-code { font-size: 7.5pt; }
 
 .title-tags {
   margin-top: 12pt;
@@ -516,9 +513,16 @@ html, body {
   color: #9a3412;
   margin-bottom: 4pt;
 }
-.doc-body [data-ppe-block] .items { display: flex; flex-wrap: wrap; gap: 5pt; }
+.doc-body [data-ppe-block] .items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 5pt;
+}
 .doc-body [data-ppe-block] .items span {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4pt;
   background: #fff;
   border: 0.6pt solid #fdba74;
   color: #9a3412;
@@ -526,6 +530,16 @@ html, body {
   border-radius: 999pt;
   font-size: 9pt;
   font-weight: 600;
+}
+.doc-body [data-ppe-block] .items span img { object-fit: contain; }
+/* Large: stack the (bigger) pictogram above the label, like the in-app block. */
+.doc-body [data-ppe-block][data-size="lg"] .items span {
+  flex-direction: column;
+  text-align: center;
+  width: 70pt;
+  padding: 4pt;
+  border-radius: 5pt;
+  font-size: 8.5pt;
 }
 
 .doc-body [data-diagram-block] {

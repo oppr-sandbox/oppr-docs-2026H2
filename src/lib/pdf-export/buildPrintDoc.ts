@@ -14,23 +14,32 @@ export interface PpeCatalogEntry {
   slug: string
   label: string
   pictogramId: string
+  /** Stored ISO pictogram inlined as a data URL; falls back to the SVG. */
+  imageDataUrl?: string
 }
 
 export interface PdfExportOptions {
   titlePage: boolean
+  /** Show the required-PPE band on the title page (small images). */
+  showPpe: boolean
   revisionBlock: boolean
+  machinesBlock: boolean
+  referencesBlock: boolean
+  logsBlock: boolean
   recurringHeader: boolean
   recurringFooter: boolean
-  referencesBlock: boolean
   watermark: "none" | "controlled" | "draft" | "review"
 }
 
 export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   titlePage: true,
+  showPpe: false,
   revisionBlock: true,
+  machinesBlock: true,
+  referencesBlock: true,
+  logsBlock: true,
   recurringHeader: true,
   recurringFooter: true,
-  referencesBlock: true,
   watermark: "controlled",
 }
 
@@ -153,6 +162,26 @@ export function buildPrintDoc(args: BuildArgs): string {
 
   const pages: string[] = []
 
+  // Document-overview tables now live on the title page, compact, in the order
+  // the export dialog presents them: revision, machines, references, logs.
+  // Each is independently toggleable and on by default.
+  const revRows = options.revisionBlock
+    ? buildRevisionRows({ displayVersion, displayStatus, version, versions })
+    : []
+  const refs = options.referencesBlock ? collectReferences(version.body_json) : []
+  const launchLogs = options.logsBlock ? collectLaunchLogs(version.body_json) : []
+  const overviewParts: string[] = []
+  if (revRows.length > 0) overviewParts.push(renderRevisionBlock(revRows))
+  if (options.machinesBlock && assets.length > 0)
+    overviewParts.push(renderAssetList(assets))
+  if (refs.length > 0) overviewParts.push(renderReferences(refs, refTitleById))
+  if (launchLogs.length > 0)
+    overviewParts.push(renderLinkedLogs(launchLogs, logsById))
+  const overviewHtml =
+    overviewParts.length > 0
+      ? `<div class="title-overview">${overviewParts.join("")}</div>`
+      : ""
+
   if (options.titlePage) {
     pages.push(
       renderTitlePage({
@@ -160,33 +189,13 @@ export function buildPrintDoc(args: BuildArgs): string {
         owner,
         effective,
         reviewBy,
-        ppeOnDoc,
+        ppeOnDoc: options.showPpe ? ppeOnDoc : [],
         typeLabel: resolvedTypeLabel,
         displayVersion,
         displayStatus,
         cover,
-        // Revision history now lives on the title page (no pill).
-        revisionRows: options.revisionBlock
-          ? buildRevisionRows({ displayVersion, displayStatus, version, versions })
-          : [],
+        overviewHtml,
       }),
-    )
-  }
-
-  // Front-matter summary tables: a "Document overview" page between the title
-  // page and the body. Linked machines, linked logs, and references —
-  // revision history moved to the title page above.
-  const refs = options.referencesBlock
-    ? collectReferences(version.body_json)
-    : []
-  const launchLogs = collectLaunchLogs(version.body_json)
-  const front: string[] = []
-  if (assets.length > 0) front.push(renderAssetList(assets))
-  if (launchLogs.length > 0) front.push(renderLinkedLogs(launchLogs, logsById))
-  if (refs.length > 0) front.push(renderReferences(refs, refTitleById))
-  if (front.length > 0) {
-    pages.push(
-      `<section class="doc-page front-matter"><h2 class="fm-title">Document overview</h2>${front.join("")}</section>`,
     )
   }
 
@@ -222,9 +231,9 @@ ${pages.join("\n")}
 // Title page
 // ---------------------------------------------------------------------------
 
-// Compact, always-one-page cover: type, title, a prominent doc-id badge,
-// version + status, metadata grid, PPE row. The summary tables live on the
-// following "Document overview" page.
+// Compact, one-page cover: type, title, a prominent doc-id badge, version +
+// status, metadata grid, the document-overview tables, and (optionally) a small
+// required-PPE band. PPE is off by default — it is large in the body, small here.
 function renderTitlePage(args: {
   doc: Doc
   owner: User | null
@@ -235,7 +244,7 @@ function renderTitlePage(args: {
   displayVersion: number
   displayStatus: DisplayStatus
   cover?: PrintCoverSettings | null
-  revisionRows: RevisionRow[]
+  overviewHtml: string
 }): string {
   const {
     doc,
@@ -247,15 +256,15 @@ function renderTitlePage(args: {
     displayVersion,
     displayStatus,
     cover,
-    revisionRows,
+    overviewHtml,
   } = args
   const ownerLabel = owner ? `${escapeHtml(owner.name)} (${escapeHtml(owner.role)})` : "—"
   const ppe = ppeOnDoc
     .map((slug) => {
       const meta = CURRENT_PPE_MAP?.get(slug)
       const label = meta?.label ?? slug
-      const pid = meta?.pictogramId ?? "general_mandatory"
-      return `<span class="ppe-chip"><img src="${escapeAttr(ppeDataUrl(pid))}" alt="" width="16" height="16" />${escapeHtml(label)}</span>`
+      const src = meta?.imageDataUrl ?? ppeDataUrl(meta?.pictogramId ?? "general_mandatory")
+      return `<span class="ppe-chip"><img src="${escapeAttr(src)}" alt="" width="16" height="16" />${escapeHtml(label)}</span>`
     })
     .join("")
   const eyebrowCompany = cover?.companyName?.trim() || "Oppr DOCS"
@@ -265,24 +274,6 @@ function renderTitlePage(args: {
   const confidentiality = cover?.confidentialityLabel?.trim()
     ? `<div class="stamp confidential">${escapeHtml(cover.confidentialityLabel.trim())}</div>`
     : ""
-  // Revision history sits on the title page now (no pill). Cap at three rows so
-  // the cover stays one page.
-  const revRows = revisionRows.slice(0, 3)
-  const revision =
-    revRows.length > 0
-      ? `<div class="title-revision">
-    <div class="title-revision-label">Revision history</div>
-    <table class="title-revision-table">
-      <thead><tr><th>Rev</th><th>Date</th><th>Status</th><th>Summary</th></tr></thead>
-      <tbody>${revRows
-        .map(
-          (r) =>
-            `<tr><td>v${r.version}</td><td>${escapeHtml(r.date)}</td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.summary)}</td></tr>`,
-        )
-        .join("")}</tbody>
-    </table>
-  </div>`
-      : ""
   return `
 <section class="doc-page title-page">
   ${logo}
@@ -302,12 +293,30 @@ function renderTitlePage(args: {
     <div><div class="k">Status</div><div class="v">${escapeHtml(displayStatus)}</div></div>
   </div>
   ${ppe ? `<div class="title-ppe"><div class="title-ppe-label">Required PPE</div><div class="title-ppe-items">${ppe}</div></div>` : ""}
-  ${revision}
+  ${overviewHtml}
   <div class="title-controlled">
     ${confidentiality}
     <div class="stamp">Controlled copy</div>
     <div>Print date ${escapeHtml(formatToday())}. Verify the latest revision in Oppr DOCS before use. Uncontrolled when printed and not stamped or registered.</div>
   </div>
+</section>`
+}
+
+// Compact revision table for the title-page overview (no pill). Cap at 3 rows.
+function renderRevisionBlock(rows: RevisionRow[]): string {
+  const r3 = rows.slice(0, 3)
+  return `
+<section class="fm-block revision-block">
+  <div class="fm-h">Revision history</div>
+  <table>
+    <thead><tr><th>Rev</th><th>Date</th><th>Status</th><th>Summary</th></tr></thead>
+    <tbody>${r3
+      .map(
+        (r) =>
+          `<tr><td class="fm-code">v${r.version}</td><td>${escapeHtml(r.date)}</td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.summary)}</td></tr>`,
+      )
+      .join("")}</tbody>
+  </table>
 </section>`
 }
 
@@ -697,14 +706,17 @@ function renderPpe(node: TipTapNode): string {
     .map((s) => s.trim())
     .filter(Boolean)
   if (items.length === 0) return ""
-  return `<div data-ppe-block>
+  const sizeRaw = String(node.attrs?.size ?? "md")
+  const size = sizeRaw === "sm" || sizeRaw === "lg" ? sizeRaw : "md"
+  const px = size === "sm" ? 18 : size === "lg" ? 44 : 28
+  return `<div data-ppe-block data-size="${size}">
   <div class="label">Required PPE</div>
   <div class="items">${items
     .map((slug) => {
       const meta = CURRENT_PPE_MAP?.get(slug)
       const label = meta?.label ?? slug
-      const pid = meta?.pictogramId ?? "general_mandatory"
-      return `<span class="ppe-chip"><img src="${escapeAttr(ppeDataUrl(pid))}" alt="" width="16" height="16" />${escapeHtml(label)}</span>`
+      const src = meta?.imageDataUrl ?? ppeDataUrl(meta?.pictogramId ?? "general_mandatory")
+      return `<span class="ppe-chip"><img src="${escapeAttr(src)}" alt="" width="${px}" height="${px}" />${escapeHtml(label)}</span>`
     })
     .join("")}</div>
 </div>`

@@ -29,6 +29,7 @@ import type * as logs from "../logs.js";
 import type * as naming from "../naming.js";
 import type * as namingTypes from "../namingTypes.js";
 import type * as ppe from "../ppe.js";
+import type * as ppeImages from "../ppeImages.js";
 import type * as qa from "../qa.js";
 import type * as seedMinimal from "../seedMinimal.js";
 import type * as seedTemplates from "../seedTemplates.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   naming: typeof naming;
   namingTypes: typeof namingTypes;
   ppe: typeof ppe;
+  ppeImages: typeof ppeImages;
   qa: typeof qa;
   seedMinimal: typeof seedMinimal;
   seedTemplates: typeof seedTemplates;

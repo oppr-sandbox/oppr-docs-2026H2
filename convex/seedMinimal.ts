@@ -206,8 +206,11 @@ export const insert = internalMutation({
       await ctx.db.insert("ppeItems", {
         slug: p.slug,
         label: p.label,
+        labelEn: p.label,
+        labelNl: p.labelNl,
         description: p.description,
         pictogramId: p.pictogramId,
+        storageId: null,
         active: true,
         builtIn: true,
         sortOrder: i,
