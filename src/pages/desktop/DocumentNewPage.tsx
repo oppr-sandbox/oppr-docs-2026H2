@@ -54,6 +54,7 @@ function defaultMetadata(): MetadataValue {
     type: "sop",
     location: "",
     discipline: "",
+    ownerId: "",
     reviewerId: "",
     approverId: "",
   }
@@ -76,6 +77,7 @@ export function DocumentNewPage() {
   const assetsRaw = useQuery(api.assets.list)
   const docsRaw = useQuery(api.documents.list, {})
   const logsRaw = useQuery(api.logs.list)
+  const me = useQuery(api.users.me)
 
   const [meta, setMeta] = useState<MetadataValue>(() => defaultMetadata())
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -96,6 +98,15 @@ export function DocumentNewPage() {
     setMeta((m) => ({ ...m, type: template.type as DocumentType }))
     setTemplateApplied(true)
   }, [kind, templateApplied, templateId, template])
+
+  // Default the owner to the author (creator), once the user loads. The user can
+  // still change it or clear it to leave a blank owner.
+  const ownerSeeded = useRef(false)
+  useEffect(() => {
+    if (ownerSeeded.current || !me) return
+    ownerSeeded.current = true
+    setMeta((m) => (m.ownerId ? m : { ...m, ownerId: me._id }))
+  }, [me])
 
   const derivedAssets = useMemo(() => {
     const ids = walkBodyAssetIds(body)
@@ -218,6 +229,7 @@ export function DocumentNewPage() {
           discipline: meta.discipline,
           title: meta.title.trim(),
           type: meta.type,
+          ownerId: (meta.ownerId || null) as Id<"users"> | null,
           reviewerId: (meta.reviewerId || null) as Id<"users"> | null,
           approverId: (meta.approverId || null) as Id<"users"> | null,
           body: pdfBody,
@@ -235,6 +247,7 @@ export function DocumentNewPage() {
         discipline: meta.discipline,
         title: meta.title.trim(),
         type: meta.type,
+        ownerId: (meta.ownerId || null) as Id<"users"> | null,
         reviewerId: (meta.reviewerId || null) as Id<"users"> | null,
         approverId: (meta.approverId || null) as Id<"users"> | null,
         body,

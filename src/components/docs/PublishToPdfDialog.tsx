@@ -105,7 +105,7 @@ export function PublishToPdfDialog({
     }
     const ppeOnDoc =
       version.body_kind === "tiptap" ? extractPpeItems(version.body_json) : []
-    return { doc, version, owner: null, ppeOnDoc }
+    return { doc, version, ppeOnDoc }
   }, [docResult, versionResult])
 
   const isLiveExport =
@@ -388,7 +388,7 @@ export function PublishToPdfDialog({
       doc: resolved.doc,
       version: resolved.version,
       assets: resolved.doc.assets,
-      owner: resolved.owner,
+      ownerName: docResult?.roles?.owner ?? null,
       options,
       ppeOnDoc: resolved.ppeOnDoc,
       typeLabel,

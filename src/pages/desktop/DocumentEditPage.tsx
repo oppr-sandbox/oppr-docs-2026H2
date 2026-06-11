@@ -150,6 +150,7 @@ export function DocumentEditPage() {
       type: d.type as DocumentType,
       location: d.location ?? parsed?.location ?? "",
       discipline: d.discipline ?? parsed?.discipline ?? "",
+      ownerId: d.ownerId ?? "",
       reviewerId: d.reviewerId ?? "",
       approverId: d.approverId ?? "",
     })
@@ -271,6 +272,7 @@ export function DocumentEditPage() {
       type: meta.type,
       location: meta.location,
       discipline: meta.discipline,
+      ownerId: (meta.ownerId || null) as Id<"users"> | null,
       reviewerId: (meta.reviewerId || null) as Id<"users"> | null,
       approverId: (meta.approverId || null) as Id<"users"> | null,
       body,

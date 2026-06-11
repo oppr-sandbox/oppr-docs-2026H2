@@ -5,7 +5,7 @@
 // The output is paginated by CSS @page rules + a leading title page wrapped
 // in .doc-page so screen preview and print share the same DOM.
 
-import type { Asset, Doc, DocVersion, User } from "@/types"
+import type { Asset, Doc, DocVersion } from "@/types"
 import { CALLOUT_META, type CalloutKind } from "@/components/docs/CalloutBlock"
 import { ppeDataUrl } from "@/lib/ppePictograms"
 import { buildPrintStyles } from "./printStyles"
@@ -71,7 +71,8 @@ interface BuildArgs {
   doc: Doc
   version: DocVersion
   assets: Asset[]
-  owner: User | null
+  /** Resolved owner display name for the cover. Null → blank. */
+  ownerName: string | null
   options: PdfExportOptions
   ppeOnDoc: string[]
   /** Resolved display label for the document type (from namingTypes). */
@@ -108,7 +109,7 @@ export function buildPrintDoc(args: BuildArgs): string {
     doc,
     version,
     assets,
-    owner,
+    ownerName,
     options,
     ppeOnDoc,
     typeLabel,
@@ -186,7 +187,7 @@ export function buildPrintDoc(args: BuildArgs): string {
     pages.push(
       renderTitlePage({
         doc,
-        owner,
+        ownerName,
         effective,
         reviewBy,
         ppeOnDoc: options.showPpe ? ppeOnDoc : [],
@@ -236,7 +237,7 @@ ${pages.join("\n")}
 // required-PPE band. PPE is off by default — it is large in the body, small here.
 function renderTitlePage(args: {
   doc: Doc
-  owner: User | null
+  ownerName: string | null
   effective: string
   reviewBy: string
   ppeOnDoc: string[]
@@ -248,7 +249,7 @@ function renderTitlePage(args: {
 }): string {
   const {
     doc,
-    owner,
+    ownerName,
     effective,
     reviewBy,
     ppeOnDoc,
@@ -258,7 +259,7 @@ function renderTitlePage(args: {
     cover,
     overviewHtml,
   } = args
-  const ownerLabel = owner ? `${escapeHtml(owner.name)} (${escapeHtml(owner.role)})` : "—"
+  const ownerLabel = ownerName ? escapeHtml(ownerName) : "—"
   const ppe = ppeOnDoc
     .map((slug) => {
       const meta = CURRENT_PPE_MAP?.get(slug)

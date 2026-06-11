@@ -976,10 +976,6 @@ export function DocumentEditor({
                 >
                   <BookMarked className="h-4 w-4 text-indigo-600" />
                 </ToolbarButton>
-              </ToolbarGroup>
-
-              {/* Launch log — handoff to LOGS, pushed to the far right */}
-              <ToolbarGroup className="ml-auto">
                 <ToolbarButton
                   title="Launch log"
                   onClick={() => setLogPickerOpen(true)}

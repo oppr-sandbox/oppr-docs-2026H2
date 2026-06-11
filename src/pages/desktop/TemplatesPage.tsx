@@ -69,7 +69,7 @@ export function TemplatesPage() {
       <PageHeader
         icon={LayoutTemplate}
         title="Templates"
-        subtitle="Starting points for new documents, and the PDF cover applied to every export."
+        subtitle="Starting points for new documents, and the Document Title page applied to every export."
         actions={
           <Button size="sm" className="gap-1.5" onClick={() => navigate("/templates/new")}>
             <Plus className="h-3.5 w-3.5" />
@@ -86,11 +86,11 @@ export function TemplatesPage() {
             </TabsTrigger>
             <TabsTrigger value="cover" className="gap-1.5">
               <FileDown className="h-3.5 w-3.5" />
-              PDF cover
+              Document Title page
             </TabsTrigger>
             <TabsTrigger value="safety" className="gap-1.5">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Safety
+              Safety Icons
             </TabsTrigger>
           </TabsList>
           <TabsContent value="templates" className="mt-4 space-y-3">

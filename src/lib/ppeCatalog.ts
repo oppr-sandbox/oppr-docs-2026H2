@@ -54,12 +54,18 @@ export function usePpeCatalog(): {
       labelNl?: string | null
     }): string =>
       (language === "nl" ? r.labelNl || r.label : r.labelEn || r.label) || r.label
+    const pickDescription = (r: {
+      description: string | null
+      descriptionNl?: string | null
+    }): string | null =>
+      (language === "nl" ? r.descriptionNl || r.description : r.description) ??
+      null
     const items: PpeMeta[] =
       rows && rows.length > 0
         ? rows.map((r) => ({
             slug: r.slug,
             label: pickLabel(r),
-            description: r.description,
+            description: pickDescription(r),
             pictogramId: r.pictogramId,
             imageUrl: r.imageUrl ?? null,
             active: r.active,

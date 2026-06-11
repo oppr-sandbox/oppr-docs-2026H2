@@ -860,10 +860,32 @@ function sanitizeSvg(svg: string): string {
     .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
 }
 
+type DiagramSort = "byDoc" | "byStatus"
+
 function DiagramsTab() {
   const diagrams = useQuery(api.images.listDiagrams, {}) as
     | DiagramEntry[]
     | undefined
+  const [search, setSearch] = useState("")
+  const [sort, setSort] = useState<DiagramSort>("byDoc")
+
+  const visible = useMemo(() => {
+    if (!diagrams) return []
+    const q = search.trim().toLowerCase()
+    const filtered = q
+      ? diagrams.filter((d) =>
+          [d.caption, d.namingCode, d.title]
+            .filter(Boolean)
+            .some((s) => s.toLowerCase().includes(q)),
+        )
+      : diagrams
+    return [...filtered].sort((a, b) =>
+      sort === "byStatus"
+        ? a.status.localeCompare(b.status) ||
+          a.namingCode.localeCompare(b.namingCode)
+        : a.namingCode.localeCompare(b.namingCode),
+    )
+  }, [diagrams, search, sort])
 
   if (diagrams === undefined) {
     return (
@@ -889,13 +911,35 @@ function DiagramsTab() {
   }
 
   return (
-    <div className="space-y-3">
-      <div className="text-xs text-muted-foreground">
-        {diagrams.length} diagram{diagrams.length === 1 ? "" : "s"} across all
-        documents
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Caption, code, or document…"
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+        <Select
+          value={sort}
+          onValueChange={(v) => setSort(v as DiagramSort)}
+        >
+          <SelectTrigger className="h-8 w-[160px] text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="byDoc">By document</SelectItem>
+            <SelectItem value="byStatus">By status</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="ml-auto text-xs text-muted-foreground">
+          {visible.length} diagram{visible.length === 1 ? "" : "s"}
+        </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {diagrams.map((d) => (
+        {visible.map((d) => (
           <div
             key={d.key}
             className="flex flex-col overflow-hidden rounded-md border bg-card"

@@ -161,7 +161,9 @@ export default defineSchema({
     label: v.string(),
     labelEn: v.optional(v.union(v.string(), v.null())),
     labelNl: v.optional(v.union(v.string(), v.null())),
+    // `description` is the English copy; `descriptionNl` its Dutch counterpart.
     description: v.union(v.string(), v.null()),
+    descriptionNl: v.optional(v.union(v.string(), v.null())),
     pictogramId: v.string(),
     storageId: v.optional(v.union(v.id("_storage"), v.null())),
     active: v.boolean(),

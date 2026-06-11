@@ -66,6 +66,7 @@ export const _ensureSeeded = internalMutation({
         labelEn: p.label,
         labelNl: p.labelNl,
         description: p.description,
+        descriptionNl: p.descriptionNl,
         pictogramId: p.pictogramId,
         storageId: null,
         active: true,
@@ -74,6 +75,31 @@ export const _ensureSeeded = internalMutation({
       })
     }
     return { seeded: true }
+  },
+})
+
+// Backfill bilingual copy on built-in rows seeded before labelNl/descriptionNl
+// existed. Only fills empty fields — never clobbers an author's edits.
+export const _backfillI18n = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let patched = 0
+    for (const p of FACTORY_PPE) {
+      const row = await ctx.db
+        .query("ppeItems")
+        .withIndex("by_slug", (q) => q.eq("slug", p.slug))
+        .unique()
+      if (!row) continue
+      const patch: Record<string, unknown> = {}
+      if (!row.labelEn) patch.labelEn = p.label
+      if (!row.labelNl) patch.labelNl = p.labelNl
+      if (!row.descriptionNl) patch.descriptionNl = p.descriptionNl
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(row._id, patch)
+        patched++
+      }
+    }
+    return { patched }
   },
 })
 

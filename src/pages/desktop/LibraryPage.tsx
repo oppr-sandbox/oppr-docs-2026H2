@@ -166,7 +166,7 @@ export function LibraryPage() {
             placeholder="Search by title or naming code…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="max-w-sm"
+            className="min-w-[300px] max-w-sm flex-1 text-sm"
           />
           <Select
             value={statusFilter}

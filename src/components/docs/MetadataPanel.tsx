@@ -33,6 +33,7 @@ export interface MetadataValue {
   type: DocumentType
   location: string
   discipline: string
+  ownerId: string
   reviewerId: string
   approverId: string
 }
@@ -42,6 +43,7 @@ export const metadataSchema = z.object({
   type: z.string().trim().min(1, "Type is required"),
   location: z.string().trim().min(1, "Location is required"),
   discipline: z.string().trim().min(1, "Discipline is required"),
+  ownerId: z.string().default(""),
   reviewerId: z.string().default(""),
   approverId: z.string().default(""),
 })
@@ -263,6 +265,36 @@ export function MetadataPanel({
             </p>
           )}
         </div>
+      </div>
+
+      <Separator />
+
+      {/* Owner — shown on the PDF cover. Defaults to the author; can be cleared. */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Owner
+          </Label>
+          {meId && value.ownerId !== meId && (
+            <button
+              type="button"
+              className="text-[11px] text-primary hover:underline"
+              onClick={() => patch({ ownerId: meId })}
+            >
+              Set to author
+            </button>
+          )}
+        </div>
+        <RoleSelect
+          value={value.ownerId}
+          onChange={(id) => patch({ ownerId: id })}
+          users={users}
+          userLabel={userLabel}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Shown on the PDF cover. Defaults to the author; leave unassigned for a
+          blank owner.
+        </p>
       </div>
 
       <Separator />

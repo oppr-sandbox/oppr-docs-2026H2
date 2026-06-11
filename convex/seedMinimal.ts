@@ -209,6 +209,7 @@ export const insert = internalMutation({
         labelEn: p.label,
         labelNl: p.labelNl,
         description: p.description,
+        descriptionNl: p.descriptionNl,
         pictogramId: p.pictogramId,
         storageId: null,
         active: true,

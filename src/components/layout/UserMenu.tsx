@@ -1,6 +1,7 @@
 import { useQuery } from "convex/react"
+import { Link } from "wouter"
 import { useAuthActions } from "@convex-dev/auth/react"
-import { LogOut, User as UserIcon } from "lucide-react"
+import { LogOut, Settings, User as UserIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -53,6 +54,12 @@ export function UserMenu() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/settings">
+            <Settings className="mr-2 h-3.5 w-3.5" />
+            User settings
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void signOut()}>
           <LogOut className="mr-2 h-3.5 w-3.5" />
           Sign out

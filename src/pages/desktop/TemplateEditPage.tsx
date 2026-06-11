@@ -128,7 +128,7 @@ export function TemplateEditPage() {
       doc: synthDoc,
       version: synthVersion,
       assets: [],
-      owner: null,
+      ownerName: null,
       options: DEFAULT_PDF_OPTIONS,
       ppeOnDoc: extractPpeItems(body),
     })

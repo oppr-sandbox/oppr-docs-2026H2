@@ -196,6 +196,7 @@ export const getWithAssets = query({
       return u.name ?? u.email ?? null
     }
     const roles = {
+      owner: await nameOf(doc.ownerId),
       author: await nameOf(doc.authorId),
       reviewer: await nameOf(doc.reviewerId),
       approver: await nameOf(doc.approverId),
@@ -316,6 +317,7 @@ export const create = mutation({
     discipline: v.string(),
     title: v.string(),
     type: docTypeArg,
+    ownerId: v.optional(v.union(v.id("users"), v.null())),
     reviewerId: v.optional(v.union(v.id("users"), v.null())),
     approverId: v.optional(v.union(v.id("users"), v.null())),
     body: v.any(),
@@ -342,7 +344,8 @@ export const create = mutation({
       type: args.type,
       status: "draft",
       currentVersion: 1,
-      ownerId: userId,
+      // Owner defaults to the author (creator) unless explicitly set.
+      ownerId: args.ownerId === undefined ? userId : args.ownerId,
       authorId: userId,
       reviewerId: args.reviewerId ?? null,
       approverId: args.approverId ?? null,
@@ -405,6 +408,7 @@ export const saveContent = mutation({
     // Only used to promote a pre_draft: location + discipline allocate the code.
     location: v.optional(v.string()),
     discipline: v.optional(v.string()),
+    ownerId: v.optional(v.union(v.id("users"), v.null())),
     reviewerId: v.optional(v.union(v.id("users"), v.null())),
     approverId: v.optional(v.union(v.id("users"), v.null())),
     body: v.any(),
@@ -427,6 +431,7 @@ export const saveContent = mutation({
       type: lockedType,
       updatedAt: now,
     }
+    if (args.ownerId !== undefined) patch.ownerId = args.ownerId
     if (args.reviewerId !== undefined) patch.reviewerId = args.reviewerId
     if (args.approverId !== undefined) patch.approverId = args.approverId
     if (!doc.authorId) patch.authorId = userId
