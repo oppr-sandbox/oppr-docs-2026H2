@@ -54,7 +54,7 @@ export function MessageContent({
   const visible = useThrottled(text, streaming ? STREAM_THROTTLE_MS : 0)
 
   return (
-    <div className={cn("tiptap-content text-sm leading-relaxed", className)}>
+    <div className={cn("tiptap-content chat-content", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -72,9 +72,9 @@ export function MessageContent({
           em: ({ children }) => (
             <em>{walkChildren(children, codeIndex, onCitationClick, onCodeClick, citationCount)}</em>
           ),
-          h1: ({ children }) => <h2 className="mt-3 text-base font-semibold">{children}</h2>,
-          h2: ({ children }) => <h2 className="mt-3 text-base font-semibold">{children}</h2>,
-          h3: ({ children }) => <h3 className="mt-2 text-sm font-semibold">{children}</h3>,
+          h1: ({ children }) => <h2 className="mt-3 text-[1.15em] font-semibold">{children}</h2>,
+          h2: ({ children }) => <h2 className="mt-3 text-[1.15em] font-semibold">{children}</h2>,
+          h3: ({ children }) => <h3 className="mt-2 text-[1em] font-semibold">{children}</h3>,
           a: ({ href, children }) => (
             <a
               href={href}
@@ -246,8 +246,9 @@ function CitationAnchor({
     <button
       type="button"
       onClick={onClick}
-      className="mx-0.5 inline-flex h-[18px] min-w-[20px] items-center justify-center rounded bg-primary/15 px-1 text-[10px] font-semibold text-primary align-baseline transition-colors hover:bg-primary/25"
-      aria-label={`Citation ${n}`}
+      className="mx-0.5 inline-flex h-[1.4em] min-w-[1.5em] items-center justify-center rounded bg-primary/15 px-1 text-[0.78em] font-semibold text-primary align-baseline transition-colors hover:bg-primary/25"
+      aria-label={`Source ${n} — scrolls to the source list below`}
+      title={`Source ${n} — tap to see where this comes from`}
     >
       {n}
     </button>
@@ -272,7 +273,7 @@ function CodeAnchor({
       type="button"
       onClick={onClick}
       className={cn(
-        "mx-0.5 inline-flex items-center rounded px-1.5 py-0 align-baseline font-mono text-[11px] font-medium transition-colors",
+        "mx-0.5 inline-flex items-center rounded px-1.5 py-0 align-baseline font-mono text-[0.85em] font-medium transition-colors",
         tone,
       )}
       title={entry.label}

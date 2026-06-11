@@ -24,6 +24,8 @@ import { DiagramBuilderAnalysis } from "./DiagramBuilderAnalysis"
 import { DiagramBuilderRebuildAnalysis } from "./DiagramBuilderRebuildAnalysis"
 import { DocumentVersioningAnalysis } from "./DocumentVersioningAnalysis"
 import { AuthoringHardeningBatchAnalysis } from "./AuthoringHardeningBatchAnalysis"
+import { AskIdaScopingAnalysis } from "./AskIdaScopingAnalysis"
+import { FunctionalityGuideAnalysis } from "./FunctionalityGuideAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -46,6 +48,26 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "functionality-guide",
+    title: "How Oppr DOCS works — the colleague's guide",
+    area: "Architecture",
+    status: "done",
+    updatedAt: "2026-06-11",
+    summary:
+      "A plain-language tour of the whole tool for anyone new to the codebase: the four-fact mental model (one app/two shells/one Convex backend; functions are the only way in; the naming code is identity; live vs working version), then how each feature works and where it lives — authoring and the custom TipTap blocks, server-side naming-code allocation and refile, the publish/version lifecycle, how documents connect to assets/logs/references via body-derived join rows, the PDF importer pipeline, version-aware PDF export with the single shared cover setup, the content-addressed image/diagram library, mobile + QR retrieval, templates, and the shared asset/log registries. Ends with a 'where to look when you start a task' map. Pairs with the Ask IDA scoping page for the chat internals.",
+    Component: FunctionalityGuideAnalysis,
+  },
+  {
+    slug: "ask-ida-scoping",
+    title: "Ask IDA scoping — how 'talk to' slices the database",
+    area: "AI",
+    status: "done",
+    updatedAt: "2026-06-11",
+    summary:
+      "Full verification of the scope selector: talk to an asset and you query the documents linked to that asset; talk to a document and only that document; otherwise the whole library. Doc and library scope were correct, but asset scope answered from the right slice while searching the wrong one — a library-wide vector search post-filtered to linked docs, which lost recall (the asset's docs had to rank in the global top 30 to be seen at all) and made the cross-link 'Not linked' badge unreachable dead UI. Fixed: asset scope resolves its linked documents first and filters the vector search to them at the index level (or(eq(documentId,…)), capped 64), with an explicit library-wide fallback that fills to k and flags the extra sources 'Not linked' so the operator still gets an answer and the missing link is visible. Archived docs no longer answer asset/library questions; library top-k 3→5. Plus three chat fixes the screenshots caught: the text-size dial did nothing (size class was overridden three layers down — now inherits, small step is 11px for more text per screen), the [1]/[5]/[6] citation chips were unexplained (now a Sources-header note + per-chip tooltip), and the cross-link popover dropped its pre-Convex 'Reset demo' copy. Documents the full pipeline, the version/status serving rules, a grill session, and the platform boundary (assets/logs are shared registries accessed only through their Convex modules).",
+    Component: AskIdaScopingAnalysis,
+  },
   {
     slug: "authoring-hardening-batch",
     title:

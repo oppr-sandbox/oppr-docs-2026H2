@@ -54,8 +54,11 @@ import { ScopeChip } from "./ScopeChip"
 import { ClearChatDialog } from "./ClearChatDialog"
 
 // Mobile font-size dial. Mounted in the AskPanel header when `compact`.
+// The size lands on the scroll container; bubbles and MessageContent inherit
+// it (`.chat-content` resets the .tiptap-content fixed font-size), so all
+// three steps actually change the rendered text.
 const CHAT_SIZE_CLASS: Record<ChatSize, string> = {
-  sm: "text-[12px] leading-snug",
+  sm: "text-[11px] leading-snug",
   md: "text-[14px] leading-relaxed",
   lg: "text-[16px] leading-relaxed",
 }
@@ -752,7 +755,7 @@ function MessageBlock({
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground whitespace-pre-wrap break-words">
+        <div className="max-w-[85%] rounded-lg bg-primary px-3 py-2 text-primary-foreground whitespace-pre-wrap break-words">
           {message.text}
         </div>
       </div>
@@ -761,7 +764,7 @@ function MessageBlock({
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[92%] space-y-2.5 rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+      <div className="max-w-[92%] space-y-2.5 rounded-lg bg-muted px-3 py-2 text-foreground">
         <MessageContent
           text={message.text}
           streaming={streaming}

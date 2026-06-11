@@ -226,6 +226,33 @@
   margin-bottom: 0.75rem;
 }
 
+/* Chat messages reuse the tiptap surface but must follow the AskPanel's
+   user-selected text size — inherit instead of the fixed 0.95rem, and keep
+   spacing proportional so the small step genuinely shows more text. */
+.tiptap-content.chat-content {
+  font-size: inherit;
+  line-height: inherit;
+}
+.tiptap-content.chat-content :where(p) {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+.tiptap-content.chat-content :where(ul, ol) {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+  padding-left: 1.4em;
+}
+.tiptap-content.chat-content :where(li) {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+.tiptap-content.chat-content :where(p:first-child, ul:first-child, ol:first-child) {
+  margin-top: 0;
+}
+.tiptap-content.chat-content :where(p:last-child, ul:last-child, ol:last-child) {
+  margin-bottom: 0;
+}
+
 /* Editor-only affordances */
 .tiptap-content .ProseMirror {
   min-height: 18rem;

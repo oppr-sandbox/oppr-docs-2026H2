@@ -67,13 +67,16 @@ export function SourcesBlock({
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         <span>Sources</span>
         {totalSections > 0 && totalSections !== citations.length && (
           <span className="font-normal text-muted-foreground/80">
             · {totalSections} unique
           </span>
         )}
+        <span className="font-normal normal-case tracking-normal text-muted-foreground/80">
+          · numbers in the answer point here
+        </span>
       </div>
       <div className="flex flex-col gap-1.5">
         {groups.map((g) => (
@@ -250,12 +253,12 @@ function OriginBadge({
           <div className="mb-1 font-medium">Cross-link source</div>
           <p className="text-muted-foreground">
             <span className="font-medium text-foreground">{title}</span> isn't connected
-            to this asset, but the answer cites it because the chunk was a strong match
-            for your question.
+            to this asset. The documents that are linked didn't answer the question, so
+            IDA widened the search to the whole library and this was the best match.
           </p>
           <p className="mt-2 text-muted-foreground">
-            If this looks wrong, your local data may be out of date — try{" "}
-            <span className="font-medium text-foreground">Settings → Reset demo</span>.
+            If this document does belong to the asset, link it on the asset page and the
+            badge disappears.
           </p>
         </PopoverContent>
       </Popover>

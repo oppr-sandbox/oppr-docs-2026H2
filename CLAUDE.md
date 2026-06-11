@@ -123,6 +123,7 @@ When unsure, look at the existing import graph and copy the pattern.
 - **PDF bytes** — `react-pdf` and `pdfjs.getDocument` detach the buffer. Always pass a fresh copy: `bytes.slice()`.
 - **Embedding-model swap requires re-embed.** Embeddings are keyed on `chunkId + modelVersion` (`convex/ai/constants.ts`). If you change `EMBEDDING_DIM` or model, Settings → "Re-embed all" is mandatory or RAG returns garbage.
 - **Custom-node SVG content** — `DiagramBlock` renders SVG via `dangerouslySetInnerHTML`. Curated presets/builder output only; never accept user-pasted SVG without sanitising.
+- **Assets and logs are shared, platform-scoped registries.** They belong to the wider Oppr toolset (LOGS/IDA), not DOCS — this deployment keeps a local copy. Access them only through `convex/assets.ts` / `convex/logs.ts` (no component queries those tables directly); link documents to assets/logs by Convex id via the join tables, never by the human-readable code. Rows carry optional `source`/`externalId` provenance so the future swap to an imported registry is server-side only. See `docs/adr/0001-shared-asset-and-log-registries.md`.
 
 ---
 
@@ -160,7 +161,7 @@ Add an SVG entry to `DIAGRAM_PRESETS` in `src/components/docs/diagramPresets.ts`
 
 ### "Add a new Ask IDA scope"
 1. Extend `AskPanelScope` in `src/components/ai/AskPanel.tsx`.
-2. Extend the scope handling in `convex/ai/ask.ts` (both `askQuestion` and `askStream`).
+2. Extend the scope handling in `convex/ai/ask.ts` — `prepareAskContext` (retrieval/slicing), `lookupAfterSearch` (version/status filter), and `buildScopeOverview`. The streaming `askStream` HTTP action is the only entry point.
 3. Loosen the `qaSessions.scopeKind` union in `convex/schema.ts` and update `qa.ts` session functions if you want persistence.
 
 ### "Run agents in parallel for big work"

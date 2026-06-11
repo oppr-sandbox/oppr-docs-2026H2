@@ -827,68 +827,6 @@ export const revertToDraft = mutation({
   },
 })
 
-export const attachPdf = mutation({
-  args: {
-    namingCode: v.string(),
-    title: v.string(),
-    type: docTypeArg,
-    tags: v.array(v.string()),
-    assetIds: v.array(v.id("assets")),
-    storageId: v.id("_storage"),
-    chunks: chunkInputValidator,
-  },
-  handler: async (ctx, args) => {
-    const userId = await requireUserId(ctx)
-    await ensureUniqueNamingCode(ctx, args.namingCode)
-
-    const now = Date.now()
-    const docId = await ctx.db.insert("documents", {
-      namingCode: args.namingCode,
-      title: args.title.trim(),
-      type: args.type,
-      status: "draft",
-      currentVersion: 1,
-      ownerId: userId,
-      tags: args.tags,
-      updatedAt: now,
-    })
-
-    await ctx.db.insert("documentVersions", {
-      documentId: docId,
-      version: 1,
-      bodyKind: "pdf",
-      bodyJson: null,
-      pdfStorageId: args.storageId,
-      publishedAt: now,
-    })
-
-    for (const [i, c] of args.chunks.entries()) {
-      await ctx.db.insert("chunks", {
-        documentId: docId,
-        version: 1,
-        seq: i + 1,
-        text: c.text,
-        pageOrSection: c.section,
-        embedding: null,
-        embeddingModel: null,
-      })
-    }
-
-    for (const aid of args.assetIds) {
-      await ctx.db.insert("documentAssets", {
-        documentId: docId,
-        assetId: aid,
-      })
-    }
-
-    await ctx.scheduler.runAfter(0, internal.ai.embed.embedMissingInternal, {
-      documentId: docId,
-    })
-
-    return docId
-  },
-})
-
 export const archive = mutation({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {

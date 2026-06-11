@@ -83,7 +83,7 @@ Three visible surfaces:
 
 ### AI / RAG (server-side)
 - `convex/ai/embed.ts` — embeddings written onto `chunks.embedding` (768-dim Convex `vectorIndex`, filterable by `documentId`), idempotent on `chunkId + modelVersion`, auto-scheduled on publish; `embedStatus` drives the Settings AI panel; `embedMissing` / `reembedAll` actions.
-- `convex/ai/ask.ts` — `askQuestion` action + `askStream` HTTP action (NDJSON streaming) registered in `convex/http.ts` at `/ai/askStream` (browser hits `VITE_CONVEX_SITE_URL`).
+- `convex/ai/ask.ts` — `askStream` HTTP action (NDJSON streaming) registered in `convex/http.ts` at `/ai/askStream` (browser hits `VITE_CONVEX_SITE_URL`). The non-streaming `askQuestion` action was removed (no callers).
 - Scopes: doc / asset / library. Q&A persists per-user in `qaSessions` + `qaMessages` with typed citations.
 - Chat UI: `AskPanel` + `AskIdaSheet` slide-in; markdown rendering, citation pills, `SourcesBlock`, `RelatedRail`, `ScopeChip`, starter prompts, copy/regenerate/stop. Mobile parity via `/m/ask`.
 
@@ -240,8 +240,8 @@ Schema source of truth: `convex/schema.ts` (plus `authTables` from `@convex-dev/
 
 1. **Chunking** — client-side (`src/components/docs/chunking.ts`): `chunksFromTipTap` (per paragraph/list item/heading, section-labelled) or `chunksFromPdfPages`. Chunks passed into create/save mutations and reconciled per version.
 2. **Embedding** — `gemini-embedding-2` at 768 dims, server-side, idempotent on `chunkId + modelVersion`. Auto-scheduled on publish; manual `embedMissing` / `reembedAll` from Settings.
-3. **Retrieval** — Convex `vectorSearch` on `chunks.by_embedding`, filtered by `documentId` for doc scope; asset/library scopes assemble candidate doc sets first.
-4. **Generation** — `gemini-3.1-flash-lite`. `askQuestion` (action) for one-shot; `askStream` (HTTP action, NDJSON) for the chat UI. Citations in `[^N]` format mapped to typed citation objects.
+3. **Retrieval** — Convex `vectorSearch` on `chunks.by_embedding`. Doc scope filters by `documentId`; **asset scope resolves linked documents from `documentAssets` first and filters the search to them** (`q.or(eq(documentId,…))`, capped 64) with a flagged library-wide fallback when they don't fill `k`; library is unfiltered. `lookupAfterSearch` then keeps only the served version (live, or working for never-published) and drops archived docs for asset/library scope.
+4. **Generation** — `gemini-3.1-flash-lite` via the `askStream` HTTP action (NDJSON streaming) — the only chat path. Citations carry `origin` (`asset-link` / `cross-link` / `log`); `cross-link` marks library-wide fallback sources and drives the "Not linked" badge.
 5. **Persistence** — all scopes persist per-user (`qaSessions.scopeKind`: doc/asset/library; library uses `scopeId = 'library'`).
 
 ---
@@ -272,6 +272,7 @@ Production: Vercel (static Vite bundle) + Convex prod deployment. See README for
 
 ## Recent diffs worth knowing about
 
+- **2026-06-11** — Ask IDA scope verification + cleanup. Asset scope now slices the vector search to the asset's linked documents at the index level (was a library-wide search post-filtered, which lost recall and made the cross-link badge dead UI); added a flagged library-wide fallback and archived-doc exclusion. Chat text-size dial fixed (was overridden three layers down — now inherits; small step 11px); citation `[N]` anchors explained in the Sources header + tooltips; cross-link popover copy de-staled. Dead code removed: `askQuestion` action, `documents.attachPdf`, 20 unused shadcn/UI files (incl. the toast cluster — app uses sonner), and 6 npm deps (`tippy.js`, `input-otp`, `vaul`, `react-resizable-panels`, plus orphaned Radix). New schema: `assets`/`logs` gain optional `source`/`externalId` provenance + `by_externalId` index for the shared platform registry (ADR `docs/adr/0001-shared-asset-and-log-registries.md`). Two new analysis pages: **Ask IDA scoping** and **How Oppr DOCS works (colleague guide)**.
 - **2026-06-10** — Image library: group-by-document view + diagrams tab + per-image status. Importer figures now insert at 35% width centered. Image drag-drop fixed (ProseMirror owns the drag; inner img `draggable=false`). Launch-log pills carry log codes; derived "Linked logs" card in MetadataPanel. Editor keyboard-shortcuts hint. Naming lifecycle hardened (immutable codes, locked filing, `refile` flow, parse-based backfill). PDF export overhaul (compact title page, Document overview front-matter, inlined diagram backgrounds). `seedMinimal` replaces all previous seed/reset paths.
 - **2026-06 (earlier)** — Versioning model landed: `liveVersion` vs `currentVersion`, signoffs, read-only published versions, `createNewVersion` fork. Chat model moved to `gemini-3.1-flash-lite`.
 - **2026-05 → 2026-06** — Migration off sql.js/IndexedDB to Convex: auth, server-side AI, file storage, importer, templates, image library. `src/db/**`, `src/ai/**`, `src/admin/**`, `convex/seed.ts`, `convex/reset.ts`, `convex/seedAssets.ts`, and the in-app "Reset demo" flow were all deleted.

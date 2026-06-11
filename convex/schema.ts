@@ -10,6 +10,12 @@ export default defineSchema({
     value: v.string(),
   }).index("by_key", ["key"]),
 
+  // The asset registry is a PLATFORM-SCOPED concept in the wider Oppr toolset:
+  // LOGS/IDA and DOCS share one asset list. This showcase keeps its own copy,
+  // but `source`/`externalId` let a row carry its platform identity so the
+  // future swap to an imported registry is a server-side change only. Access
+  // assets exclusively through convex/assets.ts — no component reads this table
+  // directly. See docs/adr/0001-shared-asset-and-log-registries.md.
   assets: defineTable({
     code: v.string(),
     name: v.string(),
@@ -28,9 +34,15 @@ export default defineSchema({
     pinY: v.union(v.number(), v.null()),
     // Optional asset photo stored in Convex storage.
     imageStorageId: v.optional(v.union(v.id("_storage"), v.null())),
+    // Provenance for the shared registry. "local" (default) or "platform";
+    // externalId is the asset's id in the wider Oppr platform, used to dedup
+    // on import. Both optional so existing rows stay valid.
+    source: v.optional(v.string()),
+    externalId: v.optional(v.string()),
   })
     .index("by_qrToken", ["qrToken"])
-    .index("by_code", ["code"]),
+    .index("by_code", ["code"])
+    .index("by_externalId", ["externalId"]),
 
   assetLogs: defineTable({
     assetId: v.id("assets"),
@@ -168,13 +180,21 @@ export default defineSchema({
     .index("by_assetId", ["assetId"])
     .index("by_documentId_and_assetId", ["documentId", "assetId"]),
 
+  // Logs originate in the Oppr LOGS module and will be IMPORTED into DOCS so a
+  // SOP can launch-reference the exact log it standardizes. This showcase
+  // seeds placeholders; `source`/`externalId` mark which rows came from the
+  // platform vs were seeded locally. Access through convex/logs.ts only.
+  // See docs/adr/0001-shared-asset-and-log-registries.md.
   logs: defineTable({
     // Placeholder identity for the LOGS module, e.g. AMS-OPS-LOG-0001.
     code: v.optional(v.string()),
     name: v.string(),
     type: v.string(),
     description: v.optional(v.union(v.string(), v.null())),
-  }),
+    // Provenance for the shared registry — see the assets table note.
+    source: v.optional(v.string()),
+    externalId: v.optional(v.string()),
+  }).index("by_externalId", ["externalId"]),
 
   documentLogRefs: defineTable({
     documentId: v.id("documents"),

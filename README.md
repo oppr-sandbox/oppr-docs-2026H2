@@ -6,6 +6,40 @@ Operator-facing knowledge base for manufacturing floors. Author SOPs in a rich e
 
 Built on **React 19 + Vite + TypeScript + Tailwind + shadcn/ui** with **Convex** as the backend (auth, database, file storage, vector search, server-side AI). Streaming chat via **Gemini** behind a Convex HTTP action.
 
+## New here? Read this first (60 seconds)
+
+Oppr DOCS is the **standardize** half of the Oppr platform (LOGS captures →
+IDA investigates → DOCS standardizes). It does five things:
+
+1. **Author** SOPs/manuals in a TipTap rich editor with custom blocks (safety
+   callouts, PPE, diagrams, step lists, asset pills, log launch-references).
+2. **File** every document under an immutable naming code
+   `{LOCATION}-{DISCIPLINE}-{TYPE}-{NNNN}` allocated server-side.
+3. **Version** them: a published edition stays live for operators while the
+   next edition is drafted; publishing pins the new live version.
+4. **Retrieve** them on the floor — operators scan a QR on an asset and get
+   that asset's linked documents on the mobile shell (`/m/*`).
+5. **Ask IDA** — a RAG chat over the corpus, scoped to one document, one
+   asset's documents, or the whole library.
+
+Three things that surprise newcomers, so internalize them early:
+
+- **The whole app is Convex.** There is no REST layer and no client-side
+  store. Pages call `useQuery`/`useMutation`/`useAction` with `api.*`; every
+  open window live-updates on a write. The only non-Convex fetch is the
+  streaming `/ai/askStream` endpoint.
+- **Naming codes are identity and never change.** Re-filing a document mints a
+  *new* document with a new code (`documents.refile`). Filing (location /
+  discipline / type) is parsed back out of the code.
+- **Assets and logs are shared, platform-scoped registries** — see below.
+  Don't bind documents to their human-readable codes; bind to ids.
+
+Orientation files, in order: **`CLAUDE.md`** (conventions + common-task
+recipes) → **`oppr-docs-status.md`** (what's shipped, schema, routes) →
+**`prd.md`** (full scope). The `/analysis` route inside the running app is a
+browsable case file of every major decision — start at **Ask IDA scoping** and
+**Authoring hardening** for the most recent work.
+
 ## Quick start (local)
 
 ```bash
@@ -92,7 +126,8 @@ After the first deploy, copy the Vercel URL back into Convex prod's `SITE_URL` e
 - **Naming codes**: `{LOCATION}-{DISCIPLINE}-{TYPE}-{NNNN}`, allocated server-side from per-triplet counters (`convex/naming.ts`); immutable once allocated — refiling mints a new document (`documents.refile`). Vocabulary managed at `/settings/naming`.
 - **AI**: Gemini behind `convex/ai/`:
   - `embed.ts` — embedding pipeline (idempotent on `chunkId + modelVersion`, 768-dim Convex vector index on `chunks`). Auto-scheduled on doc publish.
-  - `ask.ts` — `askQuestion` action (non-streaming) + `askStream` HTTP action (NDJSON streaming to the client).
+  - `ask.ts` — `askStream` HTTP action (NDJSON streaming to the client). Scope slicing: doc scope filters the vector search to one document, asset scope filters to the documents linked to that asset (with a flagged library-wide fallback), library searches everything. See the **Ask IDA scoping** analysis page for the full breakdown.
+- **Shared registries**: `assets` and `logs` are platform-scoped concepts in the wider Oppr toolset, not owned by DOCS. This deployment keeps its own copy, but every row can carry `source` + `externalId` provenance, and all access goes through `convex/assets.ts` / `convex/logs.ts` (no component reads those tables directly) so swapping in the real imported registry is a server-side change. See `docs/adr/0001-shared-asset-and-log-registries.md`.
 - **File storage**: PDFs and images in Convex storage; uploads via `generateUploadUrl` → POST → mutation; reads via signed URLs.
 - **Importer**: `convex/importer/*` + `src/lib/import/*` — multi-stage `importJobs` pipeline (extract → map → resolve links → finalize) that turns external PDFs into native documents.
 - **PDF export**: `src/lib/pdf-export/*` — client-side print pipeline with title page, document-overview front matter, and inlined diagram backgrounds.

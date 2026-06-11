@@ -1,14 +1,12 @@
 import { v } from "convex/values"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import {
-  action,
   ActionCtx,
   httpAction,
   internalQuery,
 } from "../_generated/server"
 import { internal } from "../_generated/api"
 import { Doc, Id } from "../_generated/dataModel"
-import { requireUser } from "../lib/auth"
 import { CHAT_MODEL, EMBEDDING_DIM, EMBEDDING_MODEL } from "./constants"
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -25,6 +23,7 @@ const SYSTEM_INSTRUCTION = [
   "  • For subjective questions ('most interesting', 'best', 'recommend'), pick ONE answer with at most one short sentence of justification.",
   "  • For inventory/listing questions, answer with a tight Markdown list — no preamble, no totals paragraph.",
   "  • Format with Markdown: bold, lists, short headings. Keep entity codes (HOL-OPS-SOP-0001, RMR-101, HOL-OPS-LOG-0001) verbatim — the UI auto-links them.",
+  "  • An excerpt marked '(from the wider library — not linked to this asset)' may be used, but make clear that it comes from a document not linked to this asset.",
   "  • If neither block has the answer, say so plainly in one sentence. Do not invent facts.",
   "  • Never apologize. Never refer to 'the excerpts' or 'the scope overview'. Just answer.",
 ].join("\n")
@@ -65,8 +64,12 @@ function shouldIncludeScopeOverview(scope: ScopeArg, question: string) {
 }
 
 function topKForScope(scope: ScopeArg) {
-  return scope.kind === "library" ? 3 : 6
+  return scope.kind === "library" ? 5 : 6
 }
+
+// Convex vector filters take an or() of equality terms; stay well under the
+// platform's expression limit for assets with very large doc sets.
+const MAX_FILTER_DOCS = 64
 
 function cleanSection(
   section: string | null,
@@ -144,9 +147,14 @@ export const lookupAfterSearch = internalQuery({
     // Only serve the live (published) edition. A document being re-drafted keeps
     // chunks for both the live version and the in-progress one; the draft must
     // never leak into answers until it is published and becomes the live version.
+    // A never-published document has no live version yet, so its working version
+    // is served — that keeps drafts answerable while authoring.
+    // Archived documents are excluded from asset/library answers; asking a
+    // specific archived document directly (doc scope) still works.
     const liveChunks = filteredChunks.filter((c) => {
       const d = docById.get(c.documentId)
       if (!d) return false
+      if (args.scope.kind !== "doc" && d.status === "archived") return false
       return c.version === (d.liveVersion ?? d.currentVersion)
     })
 
@@ -262,33 +270,62 @@ async function prepareAskContext(
   const queryVec = await embedQuery(args.question, apiKey)
 
   const k = topKForScope(args.scope)
-  const overFetch = args.scope.kind === "library" ? 12 : 30
-  const docScopeId = args.scope.kind === "doc" ? args.scope.id : null
-  const vectorResults = docScopeId
-    ? await ctx.vectorSearch("chunks", "by_embedding", {
-        vector: queryVec,
-        limit: overFetch,
-        filter: (q) => q.eq("documentId", docScopeId),
-      })
-    : await ctx.vectorSearch("chunks", "by_embedding", {
-        vector: queryVec,
-        limit: overFetch,
-      })
+  const overFetch = args.scope.kind === "library" ? 16 : 30
 
-  const ranked = vectorResults.slice(0, overFetch)
-  const looked: {
+  // Asset scope resolves its linked documents up front so the vector search
+  // itself is sliced to them. Post-filtering a library-wide search (the old
+  // approach) loses recall whenever the asset's documents don't rank in the
+  // global top N — and made the cross-link origin unreachable.
+  let linkedDocIds: Id<"documents">[] | null = null
+  if (args.scope.kind === "asset") {
+    const linked: { _id: Id<"documents"> }[] = await ctx.runQuery(
+      internal.ai.ask.lookupAssetDocs,
+      { assetId: args.scope.id },
+    )
+    linkedDocIds = linked.map((d) => d._id)
+  }
+
+  let vectorResults: { _id: Id<"chunks">; _score: number }[] = []
+  if (args.scope.kind === "doc") {
+    const docScopeId = args.scope.id
+    vectorResults = await ctx.vectorSearch("chunks", "by_embedding", {
+      vector: queryVec,
+      limit: overFetch,
+      filter: (q) => q.eq("documentId", docScopeId),
+    })
+  } else if (linkedDocIds) {
+    if (linkedDocIds.length > 0) {
+      const ids = linkedDocIds.slice(0, MAX_FILTER_DOCS)
+      vectorResults = await ctx.vectorSearch("chunks", "by_embedding", {
+        vector: queryVec,
+        limit: overFetch,
+        filter: (q) => q.or(...ids.map((id) => q.eq("documentId", id))),
+      })
+    }
+  } else {
+    vectorResults = await ctx.vectorSearch("chunks", "by_embedding", {
+      vector: queryVec,
+      limit: overFetch,
+    })
+  }
+
+  interface LookedChunk {
     chunkId: Id<"chunks">
     documentId: Id<"documents">
     text: string
     pageOrSection: string | null
     documentTitle: string
     documentNamingCode: string
-  }[] = await ctx.runQuery(internal.ai.ask.lookupAfterSearch, {
-    chunkIds: ranked.map((r) => r._id),
-    scope: args.scope,
-  })
+  }
+  const looked: LookedChunk[] = await ctx.runQuery(
+    internal.ai.ask.lookupAfterSearch,
+    {
+      chunkIds: vectorResults.map((r) => r._id),
+      scope: args.scope,
+    },
+  )
 
-  const scoreById = new Map(ranked.map((r) => [String(r._id), r._score]))
+  const scoreById = new Map(vectorResults.map((r) => [String(r._id), r._score]))
   const candidates: RetrievedChunk[] = looked.map((c) => ({
     _id: c.chunkId,
     documentId: c.documentId,
@@ -297,8 +334,52 @@ async function prepareAskContext(
     score: scoreById.get(String(c.chunkId)) ?? 0,
   }))
   candidates.sort((a, b) => b.score - a.score)
-  const top = candidates.slice(0, k)
+  let top = candidates.slice(0, k)
   const lookedById = new Map(looked.map((c) => [String(c.chunkId), c]))
+
+  // Asset scope fallback: when the linked documents can't fill the answer,
+  // widen to the whole library and mark every widened source as cross-link so
+  // the UI shows the "Not linked" badge instead of silently dropping context.
+  const crossLinkChunkIds = new Set<string>()
+  if (args.scope.kind === "asset" && top.length < k) {
+    const fallbackResults = await ctx.vectorSearch("chunks", "by_embedding", {
+      vector: queryVec,
+      limit: overFetch,
+    })
+    const fbLooked: LookedChunk[] = await ctx.runQuery(
+      internal.ai.ask.lookupAfterSearch,
+      {
+        chunkIds: fallbackResults.map((r) => r._id),
+        scope: { kind: "library" },
+      },
+    )
+    const have = new Set(top.map((c) => String(c._id)))
+    const linkedSet = new Set((linkedDocIds ?? []).map((id) => String(id)))
+    const fbScore = new Map(
+      fallbackResults.map((r) => [String(r._id), r._score]),
+    )
+    const fills: RetrievedChunk[] = fbLooked
+      .filter(
+        (c) =>
+          !have.has(String(c.chunkId)) &&
+          !linkedSet.has(String(c.documentId)),
+      )
+      .map((c) => ({
+        _id: c.chunkId,
+        documentId: c.documentId,
+        text: c.text,
+        pageOrSection: c.pageOrSection,
+        score: fbScore.get(String(c.chunkId)) ?? 0,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, k - top.length)
+    for (const f of fills) crossLinkChunkIds.add(String(f._id))
+    for (const c of fbLooked) {
+      if (!lookedById.has(String(c.chunkId)))
+        lookedById.set(String(c.chunkId), c)
+    }
+    top = [...top, ...fills]
+  }
 
   const includeOverview = shouldIncludeScopeOverview(args.scope, args.question)
   const overviewText: string | null = includeOverview
@@ -321,7 +402,10 @@ async function prepareAskContext(
         const header = meta.documentNamingCode
           ? `${meta.documentNamingCode} · ${meta.documentTitle}${loc}`
           : `${meta.documentTitle}${loc}`
-        return `[${i + 1}] ${header}\n${c.text}`
+        const crossLink = crossLinkChunkIds.has(String(c._id))
+          ? " (from the wider library — not linked to this asset)"
+          : ""
+        return `[${i + 1}] ${header}${crossLink}\n${c.text}`
       })
       .join("\n\n")
   }
@@ -356,22 +440,11 @@ async function prepareAskContext(
     { role: "user", parts: [{ text: userPrompt }] },
   ]
 
-  let assetLinkedDocIds: Set<string> | null = null
-  if (args.scope.kind === "asset") {
-    const assetId = args.scope.id
-    const tmp: { _id: Id<"documents"> }[] = await ctx.runQuery(
-      internal.ai.ask.lookupAssetDocs,
-      { assetId },
-    )
-    assetLinkedDocIds = new Set(tmp.map((d) => String(d._id)))
-  }
-
   const citations: CitationOut[] = top.map((c) => {
     const meta = lookedById.get(String(c._id))!
-    let origin: CitationOut["origin"] = "asset-link"
-    if (assetLinkedDocIds && !assetLinkedDocIds.has(String(c.documentId))) {
-      origin = "cross-link"
-    }
+    const origin: CitationOut["origin"] = crossLinkChunkIds.has(String(c._id))
+      ? "cross-link"
+      : "asset-link"
     return {
       documentId: String(c.documentId),
       documentTitle: meta.documentTitle,
@@ -388,56 +461,6 @@ async function prepareAskContext(
 
   return { contents, citations }
 }
-
-export const askQuestion = action({
-  args: {
-    scope: v.union(
-      v.object({ kind: v.literal("doc"), id: v.id("documents") }),
-      v.object({ kind: v.literal("asset"), id: v.id("assets") }),
-      v.object({ kind: v.literal("library") }),
-    ),
-    question: v.string(),
-    history: v.array(
-      v.object({
-        role: v.union(v.literal("user"), v.literal("assistant")),
-        text: v.string(),
-      }),
-    ),
-  },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ text: string; citations: CitationOut[] }> => {
-    await requireUser(ctx)
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this deployment")
-
-    const { contents, citations } = await prepareAskContext(ctx, args, apiKey)
-
-    const url = `${GEMINI_BASE}/models/${CHAT_MODEL}:generateContent?key=${apiKey}`
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents,
-        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-      }),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => "")
-      throw new Error(`Gemini chat ${res.status}: ${body.slice(0, 300)}`)
-    }
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[]
-    }
-    const text =
-      data.candidates?.[0]?.content?.parts
-        ?.map((p) => p.text ?? "")
-        .join("") ?? ""
-
-    return { text: text || "(no response)", citations }
-  },
-})
 
 export const lookupAssetDocs = internalQuery({
   args: { assetId: v.id("assets") },
