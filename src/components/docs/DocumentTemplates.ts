@@ -184,5 +184,9 @@ export function templateForType(type: DocumentType): unknown {
       return WORK_INSTRUCTION
     case "lmra":
       return LMRA
+    // Custom types (and any slug without a bespoke skeleton) start from the SOP
+    // structure — the most general of the four.
+    default:
+      return SOP
   }
 }

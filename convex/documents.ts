@@ -38,12 +38,8 @@ async function syncDocumentAssetsFromBody(
   }
 }
 
-const docTypeValidator = v.union(
-  v.literal("sop"),
-  v.literal("manual"),
-  v.literal("work_instruction"),
-  v.literal("lmra"),
-)
+// Type is now an editable vocabulary (namingTypes); accept any slug string.
+const docTypeValidator = v.string()
 const docStatusValidator = v.union(
   v.literal("pre_draft"),
   v.literal("draft"),
@@ -52,6 +48,14 @@ const docStatusValidator = v.union(
   v.literal("published"),
   v.literal("archived"),
 )
+
+// Most senior status for counting/filtering: a document with a live version is
+// "published" even while its next edition is being drafted; archived stays
+// archived. Mirrors src/lib/docStatus.ts.
+function effectiveStatus(d: Doc<"documents">): Doc<"documents">["status"] {
+  if (d.status === "archived") return "archived"
+  return d.liveVersion != null ? "published" : d.status
+}
 
 export const list = query({
   args: {
@@ -63,7 +67,7 @@ export const list = query({
     await requireUser(ctx)
     let docs = await ctx.db.query("documents").take(500)
 
-    if (args.status) docs = docs.filter((d) => d.status === args.status)
+    if (args.status) docs = docs.filter((d) => effectiveStatus(d) === args.status)
     if (args.type) docs = docs.filter((d) => d.type === args.type)
     if (args.search) {
       const needle = args.search.toLowerCase()
@@ -88,7 +92,7 @@ export const listWithAssetPreviews = query({
   handler: async (ctx, args) => {
     await requireUser(ctx)
     let docs = await ctx.db.query("documents").take(500)
-    if (args.status) docs = docs.filter((d) => d.status === args.status)
+    if (args.status) docs = docs.filter((d) => effectiveStatus(d) === args.status)
     if (args.type) docs = docs.filter((d) => d.type === args.type)
     if (args.search) {
       const needle = args.search.toLowerCase()
@@ -291,12 +295,7 @@ const chunkInputValidator = v.array(
   }),
 )
 
-const docTypeArg = v.union(
-  v.literal("sop"),
-  v.literal("manual"),
-  v.literal("work_instruction"),
-  v.literal("lmra"),
-)
+const docTypeArg = v.string()
 async function ensureUniqueNamingCode(
   ctx: import("./_generated/server").MutationCtx,
   namingCode: string,

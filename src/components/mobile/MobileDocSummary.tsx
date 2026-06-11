@@ -15,12 +15,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { PPE_META, type PpeItem } from "@/components/docs/PpeBlock"
+import { usePpeCatalog } from "@/lib/ppeCatalog"
+import { ppeDataUrl } from "@/lib/ppePictograms"
 import type { Asset } from "@/types"
 
 interface MobileDocSummaryProps {
   assets: Asset[]
-  ppeItems: PpeItem[]
+  ppeItems: string[]
 }
 
 export function MobileDocSummary({
@@ -28,7 +29,8 @@ export function MobileDocSummary({
   ppeItems,
 }: MobileDocSummaryProps) {
   const [, navigate] = useLocation()
-  const [open, setOpen] = useState<PpeItem | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
+  const { resolve } = usePpeCatalog()
   if (ppeItems.length === 0 && assets.length === 0) return null
 
   return (
@@ -38,23 +40,21 @@ export function MobileDocSummary({
           <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
             PPE
           </span>
-          {ppeItems.map((it) => {
-            const meta = PPE_META[it]
-            if (!meta) return null
-            const Icon = meta.icon
+          {ppeItems.map((slug) => {
+            const meta = resolve(slug)
             return (
               <Popover
-                key={it}
-                open={open === it}
-                onOpenChange={(o) => setOpen(o ? it : null)}
+                key={slug}
+                open={open === slug}
+                onOpenChange={(o) => setOpen(o ? slug : null)}
               >
                 <PopoverTrigger asChild>
                   <button
                     type="button"
                     aria-label={`${meta.label} info`}
-                    className="inline-flex h-7 items-center gap-1 rounded-full border border-orange-300 bg-orange-50 px-1.5 text-[10px] font-medium text-orange-900 transition-colors hover:bg-orange-100 active:scale-95 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-100"
+                    className="inline-flex h-7 items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-1.5 text-[10px] font-medium text-blue-900 transition-colors hover:bg-blue-100 active:scale-95 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-100"
                   >
-                    <Icon className="h-3 w-3" />
+                    <img src={ppeDataUrl(meta.pictogramId)} alt="" width={14} height={14} draggable={false} />
                     {meta.label}
                   </button>
                 </PopoverTrigger>
@@ -66,7 +66,7 @@ export function MobileDocSummary({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-[12px] font-semibold">
-                      <Icon className="h-3.5 w-3.5 text-orange-600" />
+                      <img src={ppeDataUrl(meta.pictogramId)} alt="" width={16} height={16} draggable={false} />
                       {meta.label}
                     </div>
                     <button
@@ -78,9 +78,11 @@ export function MobileDocSummary({
                       <X className="h-3 w-3" />
                     </button>
                   </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                    {meta.description}
-                  </p>
+                  {meta.description && (
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      {meta.description}
+                    </p>
+                  )}
                 </PopoverContent>
               </Popover>
             )

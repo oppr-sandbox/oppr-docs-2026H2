@@ -6,61 +6,21 @@
 
 import { format } from "date-fns"
 import { useLocation } from "wouter"
-import {
-  Factory,
-  HardHat,
-  Glasses,
-  Footprints,
-  Shirt,
-  Shield,
-  Wind,
-  Ear,
-  User as UserIcon,
-} from "lucide-react"
+import { Factory, User as UserIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "./StatusBadge"
 import { TypeBadge } from "./TypeBadge"
 import type { Asset, Doc, User } from "@/types"
 import { cn } from "@/lib/utils"
-
-type PpeItem =
-  | "hardhat"
-  | "glasses"
-  | "gloves"
-  | "boots"
-  | "hi-vis"
-  | "ear-pro"
-  | "mask"
-  | "dust-mask"
-
-const PPE_LABEL: Record<PpeItem, string> = {
-  hardhat: "Hard hat",
-  glasses: "Safety glasses",
-  gloves: "Gloves",
-  boots: "Safety boots",
-  "hi-vis": "Hi-vis",
-  "ear-pro": "Ear pro",
-  mask: "Respirator",
-  "dust-mask": "Dust mask",
-}
-
-const PPE_ICON: Record<PpeItem, typeof HardHat> = {
-  hardhat: HardHat,
-  glasses: Glasses,
-  gloves: Shield,
-  boots: Footprints,
-  "hi-vis": Shirt,
-  "ear-pro": Ear,
-  mask: Wind,
-  "dust-mask": Wind,
-}
+import { usePpeCatalog } from "@/lib/ppeCatalog"
+import { ppeDataUrl } from "@/lib/ppePictograms"
 
 interface DocumentHeroProps {
   doc: Doc
   assets: Asset[]
   owner: User | null
   versionNumber: number
-  ppeItems?: PpeItem[]
+  ppeItems?: string[]
   /** Lifecycle role display names, resolved server-side. */
   roles?: {
     author: string | null
@@ -146,28 +106,42 @@ export function DocumentHero({
               </div>
             </div>
           </Section>
-          <Section label="Required PPE">
-            {ppeItems.length === 0 ? (
-              <span className="text-xs text-muted-foreground">N/A</span>
-            ) : (
-              <div className="flex flex-wrap gap-1">
-                {ppeItems.map((it) => {
-                  const Icon = PPE_ICON[it]
-                  return (
-                    <span
-                      key={it}
-                      className="inline-flex items-center gap-1 rounded-full border border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-900 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-100"
-                    >
-                      <Icon className="h-3 w-3" />
-                      {PPE_LABEL[it]}
-                    </span>
-                  )
-                })}
-              </div>
-            )}
-          </Section>
+          <HeroPpeSection ppeItems={ppeItems} />
         </div>
     </div>
+  )
+}
+
+function HeroPpeSection({ ppeItems }: { ppeItems: string[] }) {
+  const { resolve } = usePpeCatalog()
+  return (
+    <Section label="Required PPE">
+      {ppeItems.length === 0 ? (
+        <span className="text-xs text-muted-foreground">N/A</span>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {ppeItems.map((slug) => {
+            const meta = resolve(slug)
+            return (
+              <span
+                key={slug}
+                title={meta.description ?? undefined}
+                className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-100"
+              >
+                <img
+                  src={ppeDataUrl(meta.pictogramId)}
+                  alt=""
+                  width={14}
+                  height={14}
+                  draggable={false}
+                />
+                {meta.label}
+              </span>
+            )
+          })}
+        </div>
+      )}
+    </Section>
   )
 }
 
@@ -201,7 +175,7 @@ function formatDate(iso: string): string {
  * array, parsed from the comma-separated `data-items` attr. Returns []
  * for non-TipTap bodies or when no PPE node is present.
  */
-export function extractPpeItems(body: unknown): PpeItem[] {
+export function extractPpeItems(body: unknown): string[] {
   if (!body || typeof body !== "object") return []
   const root = body as { type?: string; content?: unknown[]; attrs?: Record<string, unknown> }
   if (root.type !== "doc") return []
@@ -213,14 +187,12 @@ export function extractPpeItems(body: unknown): PpeItem[] {
     if (!node) continue
     if (node.type === "ppe") {
       const items = (node.attrs?.items as string | undefined) ?? ""
+      // Return every stored slug — the catalog resolves labels/pictograms,
+      // including custom items added on the Safety tab.
       return items
         .split(",")
         .map((s) => s.trim())
-        .filter((s): s is PpeItem =>
-          (
-            ["hardhat", "glasses", "gloves", "boots", "hi-vis", "ear-pro", "mask", "dust-mask"] as string[]
-          ).includes(s),
-        )
+        .filter(Boolean)
     }
     if (node.content) stack.push(...node.content)
   }

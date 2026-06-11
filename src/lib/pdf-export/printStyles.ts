@@ -226,11 +226,12 @@ html, body {
 }
 .title-meta-grid .v { color: #1f2937; }
 
-/* PPE row — mirrors the in-app PpeBlock: orange-tinted band, white chips. */
+/* PPE row — mirrors the in-app PpeBlock: blue-tinted band, white chips with
+   the ISO-7010-style pictogram. */
 .title-ppe {
   margin-top: 10pt;
-  border: 0.6pt solid #fdba74;
-  background: #fff7ed;
+  border: 0.6pt solid #93c5fd;
+  background: #eff6ff;
   border-radius: 6pt;
   padding: 6pt 10pt;
 }
@@ -239,7 +240,7 @@ html, body {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #9a3412;
+  color: #1e3a8a;
   margin-bottom: 4pt;
 }
 .title-ppe-items {
@@ -247,15 +248,46 @@ html, body {
   flex-wrap: wrap;
   gap: 5pt;
 }
-.title-ppe-items span {
-  display: inline-block;
-  padding: 2.5pt 9pt;
+.ppe-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4pt;
+  padding: 2.5pt 9pt 2.5pt 5pt;
   border-radius: 999pt;
-  border: 0.6pt solid #fdba74;
+  border: 0.6pt solid #93c5fd;
   background: #fff;
-  color: #9a3412;
+  color: #1e3a8a;
   font-size: 8.5pt;
   font-weight: 600;
+}
+.ppe-chip img { display: inline-block; width: 13pt; height: 13pt; }
+
+/* Title-page revision history — plain table, no pill. */
+.title-revision { margin-top: 10pt; }
+.title-revision-label {
+  font-size: 8pt;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 4pt;
+}
+.title-revision-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.5pt;
+}
+.title-revision-table th, .title-revision-table td {
+  border: 0.5pt solid #d1d5db;
+  padding: 3pt 6pt;
+  text-align: left;
+  vertical-align: top;
+}
+.title-revision-table th {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 7pt;
+  letter-spacing: 0.06em;
+  background: #f8fafc;
+  color: #475569;
 }
 
 .title-tags {
@@ -293,9 +325,8 @@ html, body {
 }
 
 /* ---------- Front matter ("Document overview" page) ---------- */
-/* Tinted section chips + header rows echo the in-app sidebar cards:
-   emerald = linked machines, indigo = references, sky = linked logs,
-   slate = revision history. */
+/* Plain section headings + clean tables. No pills — codes are plain monospace
+   cells under explicit "Linked machine / Linked log / Reference" headers. */
 
 .fm-title {
   margin: 0 0 14pt;
@@ -307,18 +338,11 @@ html, body {
   margin: 0 0 16pt;
   page-break-inside: avoid;
 }
-.fm-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 5pt;
+.fm-h {
   margin-bottom: 6pt;
-  padding: 2.5pt 9pt;
-  border-radius: 999pt;
-  border: 0.6pt solid;
-  font-size: 8pt;
+  font-size: 10pt;
   font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  color: #0f172a;
 }
 .fm-block table {
   width: 100%;
@@ -336,51 +360,15 @@ html, body {
   text-transform: uppercase;
   font-size: 8pt;
   letter-spacing: 0.06em;
-}
-.fm-block code {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 9pt;
-}
-
-/* Code pills — visually echo the in-app chips (linkedAsset / referenceDoc /
-   launchLog) so the overview tables match what the operator sees on screen. */
-.fm-block .code-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4pt;
-  padding: 1pt 6pt;
-  border-radius: 4pt;
-  border: 0.5pt solid #cbd5e1;
   background: #f8fafc;
-  color: #334155;
+  color: #475569;
+}
+.fm-block .fm-code {
   font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 9pt;
+  color: #334155;
+  white-space: nowrap;
 }
-
-.fm-slate .fm-head { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
-.fm-slate .fm-head::before { content: "↺"; font-size: 9pt; }
-.fm-slate th { background: #f8fafc; color: #475569; }
-
-.fm-emerald .fm-head { background: #ecfdf5; color: #065f46; border-color: #6ee7b7; }
-.fm-emerald .fm-head::before { content: "⚙"; color: #059669; }
-.fm-emerald th { background: #ecfdf5; color: #047857; }
-.fm-emerald code { color: #047857; }
-.fm-emerald .code-pill { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
-.fm-emerald .code-pill::before { content: "⚙"; color: #059669; }
-
-.fm-indigo .fm-head { background: #eef2ff; color: #3730a3; border-color: #a5b4fc; }
-.fm-indigo .fm-head::before { content: "❡"; color: #6366f1; }
-.fm-indigo th { background: #eef2ff; color: #4338ca; }
-.fm-indigo code { color: #4338ca; }
-.fm-indigo .code-pill { background: #eef2ff; border-color: #a5b4fc; color: #3730a3; }
-.fm-indigo .code-pill::before { content: "❡"; color: #6366f1; }
-
-.fm-sky .fm-head { background: #f0f9ff; color: #075985; border-color: #7dd3fc; }
-.fm-sky .fm-head::before { content: "▶"; font-size: 7pt; color: #0284c7; }
-.fm-sky th { background: #f0f9ff; color: #0369a1; }
-.fm-sky code { color: #0369a1; }
-.fm-sky .code-pill { background: #f0f9ff; border-color: #7dd3fc; color: #075985; }
-.fm-sky .code-pill::before { content: "▶"; font-size: 7pt; color: #0284c7; }
 
 /* ---------- Body content ---------- */
 

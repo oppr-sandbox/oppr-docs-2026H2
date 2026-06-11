@@ -2,12 +2,8 @@ import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 import { requireUser, requireUserId } from "./lib/auth"
 
-const docTypeValidator = v.union(
-  v.literal("sop"),
-  v.literal("manual"),
-  v.literal("work_instruction"),
-  v.literal("lmra"),
-)
+// Type slug references the editable namingTypes vocabulary.
+const docTypeValidator = v.string()
 
 export const list = query({
   args: { type: v.optional(docTypeValidator) },

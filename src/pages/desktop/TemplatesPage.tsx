@@ -7,7 +7,7 @@ import { useState } from "react"
 import { useLocation } from "wouter"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
-import { Copy, FileDown, LayoutTemplate, Pencil, Plus, Trash2 } from "lucide-react"
+import { Copy, FileDown, LayoutTemplate, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
@@ -33,6 +33,7 @@ import { TypeBadge } from "@/components/docs/TypeBadge"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { CoverSettingsEditor } from "@/components/docs/CoverSettingsEditor"
+import { PpeConfigurator } from "@/components/docs/PpeConfigurator"
 
 export function TemplatesPage() {
   const [, navigate] = useLocation()
@@ -86,6 +87,10 @@ export function TemplatesPage() {
             <TabsTrigger value="cover" className="gap-1.5">
               <FileDown className="h-3.5 w-3.5" />
               PDF cover
+            </TabsTrigger>
+            <TabsTrigger value="safety" className="gap-1.5">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Safety
             </TabsTrigger>
           </TabsList>
           <TabsContent value="templates" className="mt-4 space-y-3">
@@ -164,6 +169,9 @@ export function TemplatesPage() {
           </TabsContent>
           <TabsContent value="cover" className="mt-4">
             <CoverSettingsEditor />
+          </TabsContent>
+          <TabsContent value="safety" className="mt-4">
+            <PpeConfigurator />
           </TabsContent>
         </Tabs>
       </div>

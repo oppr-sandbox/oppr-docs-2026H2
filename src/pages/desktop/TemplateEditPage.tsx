@@ -33,8 +33,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DocumentEditor } from "@/components/docs/DocumentEditor"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
-import { TYPE_OPTIONS } from "@/components/docs/MetadataPanel"
 import { templateForType } from "@/components/docs/DocumentTemplates"
+import { useDocTypes } from "@/lib/typeMeta"
 import type { DocumentType } from "@/types"
 
 export function TemplateEditPage() {
@@ -49,6 +49,7 @@ export function TemplateEditPage() {
   )
   const create = useMutation(api.templates.create)
   const update = useMutation(api.templates.update)
+  const { types: docTypes } = useDocTypes()
 
   const [name, setName] = useState("")
   const [type, setType] = useState<DocumentType>("sop")
@@ -209,11 +210,13 @@ export function TemplateEditPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TYPE_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
+                    {docTypes
+                      .filter((t) => t.active || t.slug === type)
+                      .map((t) => (
+                        <SelectItem key={t.slug} value={t.slug}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>

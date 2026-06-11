@@ -84,6 +84,8 @@ export function PublishToPdfDialog({
     open ? { documentId: documentId as Id<"documents"> } : "skip",
   )
   const allDocs = useQuery(api.documents.list, open ? {} : "skip")
+  const docTypes = useQuery(api.namingTypes.list, open ? {} : "skip")
+  const ppeCatalog = useQuery(api.ppe.list, open ? {} : "skip")
 
   const resolved = useMemo(() => {
     if (!docResult || !versionResult) return null
@@ -343,6 +345,12 @@ export function PublishToPdfDialog({
           accentColor: coverSettings.accentColor,
         }
       : null
+    const typeLabel = docTypes?.find((t) => t.slug === resolved.doc.type)?.label
+    const ppeEntries = (ppeCatalog ?? []).map((p) => ({
+      slug: p.slug,
+      label: p.label,
+      pictogramId: p.pictogramId,
+    }))
     return buildPrintDoc({
       doc: resolved.doc,
       version: resolved.version,
@@ -350,6 +358,8 @@ export function PublishToPdfDialog({
       owner: resolved.owner,
       options,
       ppeOnDoc: resolved.ppeOnDoc,
+      typeLabel,
+      ppeCatalog: ppeEntries,
       imageUrlMap: imageUrlMap ?? undefined,
       versions: versionsList
         ? versionsList.map((v) => ({ version: v.version, publishedAt: v.publishedAt }))

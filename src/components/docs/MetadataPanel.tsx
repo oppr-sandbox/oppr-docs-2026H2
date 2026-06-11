@@ -25,6 +25,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { useQuery } from "convex/react"
 import { api } from "../../../convex/_generated/api"
+import { useDocTypes } from "@/lib/typeMeta"
 import { BookMarked, Factory, Hash, Play } from "lucide-react"
 
 export interface MetadataValue {
@@ -38,7 +39,7 @@ export interface MetadataValue {
 
 export const metadataSchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(200),
-  type: z.enum(["sop", "manual", "work_instruction", "lmra"]),
+  type: z.string().trim().min(1, "Type is required"),
   location: z.string().trim().min(1, "Location is required"),
   discipline: z.string().trim().min(1, "Discipline is required"),
   reviewerId: z.string().default(""),
@@ -59,22 +60,6 @@ export function validateMetadata(value: MetadataValue): ValidationResult {
     if (!errors[path]) errors[path] = issue.message
   }
   return { ok: false, errors }
-}
-
-export const TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
-  { value: "sop", label: "SOP" },
-  { value: "manual", label: "Manual" },
-  { value: "work_instruction", label: "Work instruction" },
-  { value: "lmra", label: "LMRA" },
-]
-
-// Short trigger label so Type fits the three-across field row (full label
-// still shows inside the open dropdown).
-const TYPE_SHORT: Record<DocumentType, string> = {
-  sop: "SOP",
-  manual: "Manual",
-  work_instruction: "WI",
-  lmra: "LMRA",
 }
 
 const NONE = "__none__"
@@ -130,6 +115,17 @@ export function MetadataPanel({
 
   const locations = vocab?.locations ?? []
   const disciplines = vocab?.disciplines ?? []
+  const { types: docTypes, resolve: resolveType } = useDocTypes()
+  // Active types for picking; if the current value is a deactivated type, keep
+  // it in the list so the select can still show it.
+  const typeChoices = useMemo(() => {
+    const active = docTypes.filter((t) => t.active)
+    if (value.type && !active.some((t) => t.slug === value.type)) {
+      const current = docTypes.find((t) => t.slug === value.type)
+      if (current) return [current, ...active]
+    }
+    return active
+  }, [docTypes, value.type])
 
   // Live preview of the next code when creating (no fixed code passed).
   const preview = useQuery(
@@ -218,14 +214,14 @@ export function MetadataPanel({
           </CompactSelect>
           <CompactSelect
             label="Type"
-            display={TYPE_SHORT[value.type]}
+            display={resolveType(value.type).token}
             value={value.type}
             onValueChange={(v) => patch({ type: v as DocumentType })}
             disabled={filingLocked}
           >
-            {TYPE_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
+            {typeChoices.map((t) => (
+              <SelectItem key={t.slug} value={t.slug}>
+                {t.label}
               </SelectItem>
             ))}
           </CompactSelect>

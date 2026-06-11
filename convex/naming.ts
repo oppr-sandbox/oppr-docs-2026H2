@@ -1,19 +1,16 @@
 import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
-import { MutationCtx } from "./_generated/server"
+import { MutationCtx, QueryCtx } from "./_generated/server"
 import { requireUser, requireUserId } from "./lib/auth"
 
 // Naming code format: {LOCATION}-{DISCIPLINE}-{TYPE}-{NNNN}
 // e.g. HOL-OPS-SOP-0001. The sequence is per (location, discipline, type)
 // triplet, allocated atomically from a namingCounters row.
 
-const docTypeValidator = v.union(
-  v.literal("sop"),
-  v.literal("manual"),
-  v.literal("work_instruction"),
-  v.literal("lmra"),
-)
-
+// Legacy fallback maps. Document types are now an editable vocabulary
+// (namingTypes table), but these keep the original four resolving even before
+// the table is seeded and let parseNamingCode (sync, can't query) backfill the
+// built-in tokens.
 export const TYPE_TOKEN: Record<string, string> = {
   sop: "SOP",
   manual: "MAN",
@@ -30,6 +27,20 @@ const TOKEN_TO_TYPE: Record<string, string> = {
   MAN: "manual",
   WI: "work_instruction",
   LMRA: "lmra",
+}
+
+// Resolve a type slug to its naming-code token from the namingTypes table,
+// falling back to the legacy map (and finally "DOC"). Call from a query or
+// mutation context.
+export async function resolveTypeToken(
+  ctx: { db: MutationCtx["db"] | QueryCtx["db"] },
+  slug: string,
+): Promise<string> {
+  const row = await ctx.db
+    .query("namingTypes")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .unique()
+  return row?.token ?? TYPE_TOKEN[slug] ?? "DOC"
 }
 
 // Inverse of formatCode. Used to backfill location/discipline on documents
@@ -58,15 +69,13 @@ export function counterKey(
   return `${location}|${discipline}|${type}`
 }
 
-function formatCode(
+function formatCodeWithToken(
   location: string,
   discipline: string,
-  type: string,
+  token: string,
   seq: number,
 ): string {
-  return `${location}-${discipline}-${typeToken(type)}-${seq
-    .toString()
-    .padStart(4, "0")}`
+  return `${location}-${discipline}-${token}-${seq.toString().padStart(4, "0")}`
 }
 
 // Atomically allocate the next code for a triplet. Reads + patches the counter
@@ -90,7 +99,8 @@ export async function allocateNamingCode(
   } else {
     await ctx.db.insert("namingCounters", { key, value: next })
   }
-  return formatCode(location, discipline, type, next)
+  const token = await resolveTypeToken(ctx, type)
+  return formatCodeWithToken(location, discipline, token, next)
 }
 
 // Non-mutating preview of the next code for the metadata panel. May be stale by
@@ -99,7 +109,7 @@ export const peekNextCode = query({
   args: {
     location: v.string(),
     discipline: v.string(),
-    type: docTypeValidator,
+    type: v.string(),
   },
   handler: async (ctx, args) => {
     await requireUser(ctx)
@@ -109,8 +119,9 @@ export const peekNextCode = query({
       .withIndex("by_key", (q) => q.eq("key", key))
       .unique()
     const next = (existing?.value ?? 0) + 1
+    const token = await resolveTypeToken(ctx, args.type)
     return {
-      code: formatCode(args.location, args.discipline, args.type, next),
+      code: formatCodeWithToken(args.location, args.discipline, token, next),
       seq: next,
     }
   },

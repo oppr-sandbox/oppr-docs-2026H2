@@ -16,6 +16,7 @@ import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import type { Doc, DocumentStatus, DocumentType } from "@/types"
 import { toLegacyDoc } from "@/lib/convex-adapters"
+import { useDocTypes } from "@/lib/typeMeta"
 import {
   DocumentLibraryTable,
   type AssetPreview,
@@ -39,14 +40,6 @@ const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "archived", label: "Archived" },
 ]
 
-const TYPE_OPTIONS: Array<{ value: TypeFilter; label: string }> = [
-  { value: "all", label: "All types" },
-  { value: "sop", label: "SOP" },
-  { value: "manual", label: "Manual" },
-  { value: "work_instruction", label: "Work instruction" },
-  { value: "lmra", label: "LMRA" },
-]
-
 function LoadingState() {
   return (
     <div className="space-y-3">
@@ -64,6 +57,15 @@ export function LibraryPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [groupByType, setGroupByType] = useState(false)
+  const { types: docTypes } = useDocTypes()
+
+  const typeOptions = useMemo<Array<{ value: TypeFilter; label: string }>>(
+    () => [
+      { value: "all", label: "All types" },
+      ...docTypes.map((t) => ({ value: t.slug, label: t.label })),
+    ],
+    [docTypes],
+  )
 
   const queryArgs = useMemo(
     () => ({
@@ -189,7 +191,7 @@ export function LibraryPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TYPE_OPTIONS.map((opt) => (
+              {typeOptions.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>
@@ -231,6 +233,8 @@ export function LibraryPage() {
           <GroupedByType
             docs={docs}
             assetsByDoc={assetsByDoc}
+            typeOrder={docTypes.map((t) => t.slug)}
+            typeLabels={Object.fromEntries(docTypes.map((t) => [t.slug, t.label]))}
             onRowClick={(d) => navigate(`/docs/${d.id}`)}
             onAssetClick={(id) => navigate(`/assets/${id}`)}
             onAction={handleAction}
@@ -258,17 +262,11 @@ export function LibraryPage() {
   )
 }
 
-const TYPE_LABELS: Record<DocumentType, string> = {
-  sop: "Standard operating procedures",
-  manual: "Manuals",
-  work_instruction: "Work instructions",
-  lmra: "LMRA cards",
-}
-const TYPE_ORDER: DocumentType[] = ["sop", "manual", "work_instruction", "lmra"]
-
 interface GroupedByTypeProps {
   docs: Doc[]
   assetsByDoc: Record<string, AssetPreview[]>
+  typeOrder: DocumentType[]
+  typeLabels: Record<string, string>
   onRowClick: (d: Doc) => void
   onAssetClick: (id: string) => void
   onAction: (action: DocumentRowAction, doc: Doc) => void
@@ -277,22 +275,30 @@ interface GroupedByTypeProps {
 function GroupedByType({
   docs,
   assetsByDoc,
+  typeOrder,
+  typeLabels,
   onRowClick,
   onAssetClick,
   onAction,
 }: GroupedByTypeProps) {
   const groups = useMemo(() => {
     const map = new Map<DocumentType, Doc[]>()
-    for (const t of TYPE_ORDER) map.set(t, [])
+    for (const t of typeOrder) map.set(t, [])
+    // Any doc whose type isn't in the vocabulary lands in a trailing bucket so
+    // nothing silently disappears from the grouped view.
+    const orphans: Doc[] = []
     for (const d of docs) {
       const list = map.get(d.type)
       if (list) list.push(d)
+      else orphans.push(d)
     }
-    return TYPE_ORDER.filter((t) => (map.get(t) ?? []).length > 0).map((t) => ({
-      type: t,
-      docs: map.get(t) ?? [],
-    }))
-  }, [docs])
+    const result = typeOrder
+      .filter((t) => (map.get(t) ?? []).length > 0)
+      .map((t) => ({ type: t, label: typeLabels[t] ?? t, docs: map.get(t) ?? [] }))
+    if (orphans.length > 0)
+      result.push({ type: "__other__", label: "Other", docs: orphans })
+    return result
+  }, [docs, typeOrder, typeLabels])
 
   if (groups.length === 0) return null
 
@@ -301,7 +307,7 @@ function GroupedByType({
       {groups.map((g) => (
         <section key={g.type}>
           <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold">{TYPE_LABELS[g.type]}</h2>
+            <h2 className="text-sm font-semibold">{g.label}</h2>
             <span className="text-xs text-muted-foreground">
               {g.docs.length} document{g.docs.length === 1 ? "" : "s"}
             </span>

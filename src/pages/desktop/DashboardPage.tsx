@@ -25,6 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { TopBar } from "@/components/layout/TopBar"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { toLegacyDoc } from "@/lib/convex-adapters"
+import { effectiveStatus } from "@/lib/docStatus"
 import type { DocumentStatus } from "@/types"
 
 const STATUS_LABEL: Record<DocumentStatus, string> = {
@@ -50,7 +51,7 @@ export function DashboardPage() {
   const recent = useMemo(
     () =>
       docs
-        .filter((d) => d.status === "published")
+        .filter((d) => effectiveStatus(d) === "published")
         .slice(0, 5),
     [docs],
   )
@@ -72,7 +73,7 @@ export function DashboardPage() {
       published: 0,
       archived: 0,
     }
-    for (const d of docs) c[d.status]++
+    for (const d of docs) c[effectiveStatus(d)]++
     return c
   }, [docs])
 

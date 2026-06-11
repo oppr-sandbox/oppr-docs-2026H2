@@ -1,6 +1,8 @@
 // Shared domain types. Used across DB layer, pages, and AI layer.
 
-export type DocumentType = "sop" | "manual" | "work_instruction" | "lmra"
+// Document type is an editable vocabulary (namingTypes), so a slug string.
+// The four originals remain the seeded defaults.
+export type DocumentType = string
 export type DocumentStatus =
   | "pre_draft"
   | "draft"

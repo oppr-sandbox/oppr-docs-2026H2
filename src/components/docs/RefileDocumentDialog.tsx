@@ -28,7 +28,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { TYPE_OPTIONS } from "./MetadataPanel"
+import { useDocTypes } from "@/lib/typeMeta"
 import type { DocumentType } from "@/types"
 
 interface RefileDocumentDialogProps {
@@ -81,11 +81,9 @@ export function RefileDocumentDialog({
 
   const locations = vocab?.locations ?? []
   const disciplines = vocab?.disciplines ?? []
+  const { types: docTypes, resolve: resolveType } = useDocTypes()
 
-  const typeLabel = useMemo(
-    () => TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type,
-    [type],
-  )
+  const typeLabel = useMemo(() => resolveType(type).label, [resolveType, type])
 
   async function confirm() {
     setRunning(true)
@@ -163,11 +161,13 @@ export function RefileDocumentDialog({
                   {typeLabel}
                 </SelectTrigger>
                 <SelectContent>
-                  {TYPE_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
+                  {docTypes
+                    .filter((t) => t.active || t.slug === type)
+                    .map((t) => (
+                      <SelectItem key={t.slug} value={t.slug}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

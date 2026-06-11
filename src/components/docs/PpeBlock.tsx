@@ -1,13 +1,14 @@
 // PpeBlock — block-level row of PPE pictogram chips for procedure headers.
 //
-// Stores the selected PPE item codes as a comma-separated string in
-// `data-items`. Render is a horizontal flex row of icon + label chips. The
-// block is `atom: true` so the row is treated as a single unit (you can't
-// type inside it).
+// Stores the selected PPE item slugs as a comma-separated string in
+// `data-items`. Render is a horizontal flex row of pictogram + label chips. The
+// block is `atom: true` so the row is treated as a single unit (you can't type
+// inside it).
 //
-// Two pickers: PpePicker (Dialog, used by slash menu deep entry) and
-// PpeQuickPalette (Popover, used by the toolbar PPE button) — they share
-// PPE_META + PPE_ORDER so both stay in sync.
+// The catalog is the configurable ppeItems table (Templates → Safety), read
+// through usePpeCatalog. The picker shows active items; the read view resolves
+// any stored slug (including deactivated ones). Pictograms are the bundled
+// ISO-7010-style SVGs in src/lib/ppePictograms.ts.
 
 import { useState } from "react"
 import { Node, mergeAttributes, type RawCommands } from "@tiptap/core"
@@ -16,19 +17,7 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react"
-import {
-  Check,
-  CornerDownLeft,
-  Ear,
-  Footprints,
-  Glasses,
-  HardHat,
-  Plus,
-  Shield,
-  Shirt,
-  Trash2,
-  Wind,
-} from "lucide-react"
+import { Check, CornerDownLeft, HardHat, Plus, Trash2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -44,83 +33,31 @@ import {
 } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { usePpeCatalog } from "@/lib/ppeCatalog"
+import { ppeDataUrl } from "@/lib/ppePictograms"
 
-export type PpeItem =
-  | "hardhat"
-  | "glasses"
-  | "gloves"
-  | "boots"
-  | "hi-vis"
-  | "ear-pro"
-  | "mask"
-  | "dust-mask"
+// A PPE item is now any catalog slug.
+export type PpeItem = string
 
-interface PpeMeta {
-  label: string
-  description: string
-  icon: typeof HardHat
+function Pictogram({ id, size = 16 }: { id: string; size?: number }) {
+  return (
+    <img
+      src={ppeDataUrl(id)}
+      alt=""
+      width={size}
+      height={size}
+      className="shrink-0"
+      draggable={false}
+    />
+  )
 }
 
-export const PPE_META: Record<PpeItem, PpeMeta> = {
-  hardhat: {
-    label: "Hard hat",
-    description: "Protects head from falling objects and impacts.",
-    icon: HardHat,
-  },
-  glasses: {
-    label: "Safety glasses",
-    description: "Eye protection from dust, splashes, and debris.",
-    icon: Glasses,
-  },
-  gloves: {
-    label: "Gloves",
-    description: "Hand protection against cuts, abrasion, contaminants.",
-    icon: Shield,
-  },
-  boots: {
-    label: "Safety boots",
-    description: "Steel-toe with anti-slip soles. Required on the floor.",
-    icon: Footprints,
-  },
-  "hi-vis": {
-    label: "Hi-vis vest",
-    description: "Required wherever forklifts or vehicles operate.",
-    icon: Shirt,
-  },
-  "ear-pro": {
-    label: "Ear protection",
-    description: "Required in zones above 85 dB(A).",
-    icon: Ear,
-  },
-  mask: {
-    label: "Respirator",
-    description: "Particulate / vapour filtration as specified per task.",
-    icon: Wind,
-  },
-  "dust-mask": {
-    label: "Dust mask",
-    description: "Disposable dust mask for non-toxic particulates.",
-    icon: Wind,
-  },
-}
-
-const PPE_ORDER: PpeItem[] = [
-  "hardhat",
-  "glasses",
-  "gloves",
-  "boots",
-  "hi-vis",
-  "ear-pro",
-  "mask",
-  "dust-mask",
-]
-
-function parseItems(raw: string | undefined): PpeItem[] {
+function parseItems(raw: string | undefined): string[] {
   if (!raw) return []
   return raw
     .split(",")
     .map((s) => s.trim())
-    .filter((s): s is PpeItem => (PPE_ORDER as string[]).includes(s))
+    .filter(Boolean)
 }
 
 function PpeView({
@@ -134,12 +71,16 @@ function PpeView({
   const items = parseItems(node.attrs.items as string | undefined)
   const editable = editor?.isEditable ?? false
   const [editOpen, setEditOpen] = useState(false)
+  const { active, resolve } = usePpeCatalog()
 
-  function toggle(it: PpeItem) {
+  function toggle(slug: string) {
     const set = new Set(items)
-    if (set.has(it)) set.delete(it)
-    else set.add(it)
-    updateAttributes({ items: PPE_ORDER.filter((x) => set.has(x)).join(",") })
+    if (set.has(slug)) set.delete(slug)
+    else set.add(slug)
+    // Preserve catalog order for the active items, keep any extra stored slugs.
+    const ordered = active.map((p) => p.slug).filter((s) => set.has(s))
+    const extras = items.filter((s) => set.has(s) && !ordered.includes(s))
+    updateAttributes({ items: [...ordered, ...extras].join(",") })
   }
 
   function addLineBelow() {
@@ -172,30 +113,28 @@ function PpeView({
             PPE
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" sideOffset={6} className="w-[300px] p-2">
+        <PopoverContent align="end" sideOffset={6} className="max-h-80 w-[300px] overflow-auto p-2">
           <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             <HardHat className="h-3 w-3" />
             Required PPE
           </div>
           <div className="grid grid-cols-2 gap-1">
-            {PPE_ORDER.map((it) => {
-              const meta = PPE_META[it]
-              const Icon = meta.icon
-              const on = items.includes(it)
+            {active.map((p) => {
+              const on = items.includes(p.slug)
               return (
                 <button
-                  key={it}
+                  key={p.slug}
                   type="button"
-                  onClick={() => toggle(it)}
+                  onClick={() => toggle(p.slug)}
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-[11px] font-medium transition-colors",
                     on
-                      ? "border-orange-400 bg-orange-100 text-orange-900 dark:bg-orange-500/20 dark:text-orange-100"
+                      ? "border-blue-400 bg-blue-50 text-blue-900 dark:bg-blue-500/20 dark:text-blue-100"
                       : "border-border bg-background text-muted-foreground hover:bg-muted",
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span className="flex-1 truncate">{meta.label}</span>
+                  <Pictogram id={p.pictogramId} />
+                  <span className="flex-1 truncate">{p.label}</span>
                   {on && <Check className="h-3 w-3" />}
                 </button>
               )
@@ -229,7 +168,7 @@ function PpeView({
         data-ppe
         className={cn(
           "group relative my-3 flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground",
-          selected && "ring-2 ring-orange-300 ring-offset-1",
+          selected && "ring-2 ring-blue-300 ring-offset-1",
         )}
       >
         Required PPE: none yet — use the
@@ -244,23 +183,23 @@ function PpeView({
       data-ppe
       data-items={items.join(",")}
       className={cn(
-        "group relative my-3 flex flex-wrap items-center gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 dark:border-orange-500/40 dark:bg-orange-500/10",
-        selected && "ring-2 ring-orange-300 ring-offset-1",
+        "group relative my-3 flex flex-wrap items-center gap-2 rounded-md border border-blue-300 bg-blue-50/70 px-3 py-2 dark:border-blue-500/40 dark:bg-blue-500/10",
+        selected && "ring-2 ring-blue-300 ring-offset-1",
       )}
     >
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-900 dark:text-orange-200">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-900 dark:text-blue-200">
         Required PPE
       </span>
       <div className="flex flex-wrap gap-1.5">
-        {items.map((it) => {
-          const meta = PPE_META[it]
-          const Icon = meta.icon
+        {items.map((slug) => {
+          const meta = resolve(slug)
           return (
             <span
-              key={it}
-              className="inline-flex items-center gap-1 rounded-full border border-orange-300 bg-white px-2 py-0.5 text-[11px] font-medium text-orange-900 dark:border-orange-500/40 dark:bg-orange-950/40 dark:text-orange-100"
+              key={slug}
+              className="inline-flex items-center gap-1.5 rounded-full border border-blue-300 bg-white px-2 py-0.5 text-[11px] font-medium text-blue-900 dark:border-blue-500/40 dark:bg-blue-950/40 dark:text-blue-100"
+              title={meta.description ?? undefined}
             >
-              <Icon className="h-3 w-3" />
+              <Pictogram id={meta.pictogramId} size={18} />
               {meta.label}
             </span>
           )
@@ -340,17 +279,18 @@ export function PpePicker({
   onSelect,
   initial = [],
 }: PpePickerProps) {
-  const [picked, setPicked] = useState<Set<PpeItem>>(new Set(initial))
+  const { active } = usePpeCatalog()
+  const [picked, setPicked] = useState<Set<string>>(new Set(initial))
 
-  function toggle(it: PpeItem) {
+  function toggle(slug: string) {
     const next = new Set(picked)
-    if (next.has(it)) next.delete(it)
-    else next.add(it)
+    if (next.has(slug)) next.delete(slug)
+    else next.add(slug)
     setPicked(next)
   }
 
   function commit() {
-    onSelect(PPE_ORDER.filter((it) => picked.has(it)))
+    onSelect(active.map((p) => p.slug).filter((s) => picked.has(s)))
     onOpenChange(false)
   }
 
@@ -363,16 +303,14 @@ export function PpePicker({
             Pick the personal protective equipment required for this procedure.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-2 py-2">
-          {PPE_ORDER.map((it) => {
-            const meta = PPE_META[it]
-            const Icon = meta.icon
-            const on = picked.has(it)
+        <div className="grid max-h-[50vh] grid-cols-2 gap-2 overflow-auto py-2">
+          {active.map((p) => {
+            const on = picked.has(p.slug)
             return (
               <button
-                key={it}
+                key={p.slug}
                 type="button"
-                onClick={() => toggle(it)}
+                onClick={() => toggle(p.slug)}
                 className={cn(
                   "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors",
                   on
@@ -380,8 +318,8 @@ export function PpePicker({
                     : "border-input hover:bg-muted",
                 )}
               >
-                <Icon className="h-4 w-4" />
-                <span className="flex-1">{meta.label}</span>
+                <Pictogram id={p.pictogramId} size={20} />
+                <span className="flex-1">{p.label}</span>
                 {on && <Check className="h-4 w-4 text-primary" />}
               </button>
             )
@@ -407,21 +345,16 @@ interface PpeQuickPaletteProps {
   children?: React.ReactNode
 }
 
-/**
- * Anchored popover used as the default surface for the toolbar PPE button.
- * Operators toggle pictograms inline and click "Insert PPE row" to drop a
- * fresh block at the cursor. The Dialog-based PpePicker stays around for the
- * slash menu's long-form entry and for editing existing blocks.
- */
 export function PpeQuickPalette({ onInsert, children }: PpeQuickPaletteProps) {
+  const { active } = usePpeCatalog()
   const [open, setOpen] = useState(false)
-  const [picked, setPicked] = useState<Set<PpeItem>>(new Set())
+  const [picked, setPicked] = useState<Set<string>>(new Set())
 
-  function toggle(it: PpeItem) {
+  function toggle(slug: string) {
     setPicked((prev) => {
       const next = new Set(prev)
-      if (next.has(it)) next.delete(it)
-      else next.add(it)
+      if (next.has(slug)) next.delete(slug)
+      else next.add(slug)
       return next
     })
   }
@@ -447,34 +380,32 @@ export function PpeQuickPalette({ onInsert, children }: PpeQuickPaletteProps) {
             className="h-8 w-8 p-0"
             title="Required PPE"
           >
-            <HardHat className="h-4 w-4 text-orange-600" />
+            <HardHat className="h-4 w-4 text-blue-600" />
           </Button>
         )}
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-[320px] p-2">
+      <PopoverContent align="start" sideOffset={6} className="max-h-80 w-[320px] overflow-auto p-2">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <HardHat className="h-3 w-3" />
           Required PPE
         </div>
         <div className="grid grid-cols-2 gap-1">
-          {PPE_ORDER.map((it) => {
-            const meta = PPE_META[it]
-            const Icon = meta.icon
-            const on = picked.has(it)
+          {active.map((p) => {
+            const on = picked.has(p.slug)
             return (
               <button
-                key={it}
+                key={p.slug}
                 type="button"
-                onClick={() => toggle(it)}
+                onClick={() => toggle(p.slug)}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-[11px] font-medium transition-colors",
                   on
-                    ? "border-orange-400 bg-orange-100 text-orange-900 dark:bg-orange-500/20 dark:text-orange-100"
+                    ? "border-blue-400 bg-blue-50 text-blue-900 dark:bg-blue-500/20 dark:text-blue-100"
                     : "border-border bg-background text-muted-foreground hover:bg-muted",
                 )}
               >
-                <Icon className="h-3.5 w-3.5" />
-                <span className="flex-1 truncate">{meta.label}</span>
+                <Pictogram id={p.pictogramId} />
+                <span className="flex-1 truncate">{p.label}</span>
                 {on && <Check className="h-3 w-3" />}
               </button>
             )
@@ -501,7 +432,7 @@ export function PpeQuickPalette({ onInsert, children }: PpeQuickPaletteProps) {
               className="h-7 text-[11px]"
               disabled={picked.size === 0}
               onClick={() => {
-                onInsert(PPE_ORDER.filter((it) => picked.has(it)))
+                onInsert(active.map((p) => p.slug).filter((s) => picked.has(s)))
                 setOpen(false)
                 reset()
               }}

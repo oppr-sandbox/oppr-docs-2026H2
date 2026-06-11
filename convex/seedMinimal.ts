@@ -3,6 +3,7 @@ import { internal } from "./_generated/api"
 import { v } from "convex/values"
 import { Id } from "./_generated/dataModel"
 import { counterKey } from "./naming"
+import { FACTORY_PPE } from "./ppe"
 
 // Minimal test dataset: wipes every app table except templates, then seeds
 // exactly enough to exercise the whole tool end to end —
@@ -29,8 +30,19 @@ const WIPE_TABLES = [
   "importJobs",
   "namingLocations",
   "namingDisciplines",
+  "namingTypes",
   "namingCounters",
+  "ppeItems",
 ] as const
+
+const FACTORY_TYPES = [
+  { slug: "sop", token: "SOP", label: "SOP", icon: "FileText", color: "sky" },
+  { slug: "manual", token: "MAN", label: "Manual", icon: "BookOpen", color: "violet" },
+  { slug: "work_instruction", token: "WI", label: "Work instruction", icon: "ListChecks", color: "emerald" },
+  { slug: "lmra", token: "LMRA", label: "LMRA", icon: "ShieldAlert", color: "rose" },
+  { slug: "toolbox", token: "TBOX", label: "Toolbox talk", icon: "Presentation", color: "amber" },
+  { slug: "policy", token: "POL", label: "Policy", icon: "Landmark", color: "indigo" },
+]
 
 const IMAGE_A_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450"><rect width="800" height="450" fill="#f8fafc"/><rect x="60" y="140" width="200" height="170" rx="10" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/><text x="160" y="230" text-anchor="middle" font-family="sans-serif" font-size="20" fill="#334155">Hopper</text><rect x="300" y="170" width="280" height="110" rx="55" fill="#ddd6fe" stroke="#7c3aed" stroke-width="2"/><text x="440" y="232" text-anchor="middle" font-family="sans-serif" font-size="20" fill="#4c1d95">Screw barrel</text><rect x="620" y="160" width="130" height="130" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><text x="685" y="232" text-anchor="middle" font-family="sans-serif" font-size="18" fill="#92400e">Die</text><line x1="260" y1="225" x2="300" y2="225" stroke="#334155" stroke-width="3"/><line x1="580" y1="225" x2="620" y2="225" stroke="#334155" stroke-width="3"/><text x="400" y="60" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="bold" fill="#0f172a">EXT-201 twin-screw extruder — cross-section</text><circle cx="440" cy="320" r="9" fill="#ef4444"/><text x="458" y="326" font-family="sans-serif" font-size="16" fill="#b91c1c">Hot zone — do not touch</text></svg>`
 
@@ -175,6 +187,31 @@ export const insert = internalMutation({
       ["MNT", "Maintenance"],
     ]) {
       await ctx.db.insert("namingDisciplines", { code, label })
+    }
+    for (let i = 0; i < FACTORY_TYPES.length; i++) {
+      const t = FACTORY_TYPES[i]
+      await ctx.db.insert("namingTypes", {
+        slug: t.slug,
+        token: t.token,
+        label: t.label,
+        icon: t.icon,
+        color: t.color,
+        active: true,
+        builtIn: true,
+        sortOrder: i,
+      })
+    }
+    for (let i = 0; i < FACTORY_PPE.length; i++) {
+      const p = FACTORY_PPE[i]
+      await ctx.db.insert("ppeItems", {
+        slug: p.slug,
+        label: p.label,
+        description: p.description,
+        pictogramId: p.pictogramId,
+        active: true,
+        builtIn: true,
+        sortOrder: i,
+      })
     }
 
     const extruderId = await ctx.db.insert("assets", {

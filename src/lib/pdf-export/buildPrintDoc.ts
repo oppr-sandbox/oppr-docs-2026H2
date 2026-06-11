@@ -7,8 +7,14 @@
 
 import type { Asset, Doc, DocVersion, User } from "@/types"
 import { CALLOUT_META, type CalloutKind } from "@/components/docs/CalloutBlock"
-import { PPE_META, type PpeItem } from "@/components/docs/PpeBlock"
+import { ppeDataUrl } from "@/lib/ppePictograms"
 import { buildPrintStyles } from "./printStyles"
+
+export interface PpeCatalogEntry {
+  slug: string
+  label: string
+  pictogramId: string
+}
 
 export interface PdfExportOptions {
   titlePage: boolean
@@ -58,7 +64,11 @@ interface BuildArgs {
   assets: Asset[]
   owner: User | null
   options: PdfExportOptions
-  ppeOnDoc: PpeItem[]
+  ppeOnDoc: string[]
+  /** Resolved display label for the document type (from namingTypes). */
+  typeLabel?: string
+  /** Active/known PPE catalog so slugs resolve to a label + pictogram. */
+  ppeCatalog?: PpeCatalogEntry[]
   /** Resolved signed URLs for images referenced in the body. Keyed by Convex Id. */
   imageUrlMap?: Record<string, string | null>
   /** Full version history, newest first. Drives the revision table. */
@@ -92,6 +102,8 @@ export function buildPrintDoc(args: BuildArgs): string {
     owner,
     options,
     ppeOnDoc,
+    typeLabel,
+    ppeCatalog,
     imageUrlMap,
     versions,
     refTitleById,
@@ -102,6 +114,10 @@ export function buildPrintDoc(args: BuildArgs): string {
   } = args
   CURRENT_PDF_PAGES = pdfPagesByStorageId
   CURRENT_DIAGRAM_BG = diagramBgDataUrls
+  CURRENT_PPE_MAP = ppeCatalog
+    ? new Map(ppeCatalog.map((p) => [p.slug, p]))
+    : undefined
+  const resolvedTypeLabel = typeLabel ?? TYPE_LABEL[doc.type] ?? doc.type
   const effective = formatDate(version.published_at)
   const reviewBy = addOneYear(version.published_at)
   // Version-aware export: the PDF reflects exactly the edition handed in, not
@@ -145,26 +161,26 @@ export function buildPrintDoc(args: BuildArgs): string {
         effective,
         reviewBy,
         ppeOnDoc,
+        typeLabel: resolvedTypeLabel,
         displayVersion,
         displayStatus,
         cover,
+        // Revision history now lives on the title page (no pill).
+        revisionRows: options.revisionBlock
+          ? buildRevisionRows({ displayVersion, displayStatus, version, versions })
+          : [],
       }),
     )
   }
 
   // Front-matter summary tables: a "Document overview" page between the title
-  // page and the body. Linked machines and linked logs are always included
-  // (when present); revision history and references follow the toggles.
+  // page and the body. Linked machines, linked logs, and references —
+  // revision history moved to the title page above.
   const refs = options.referencesBlock
     ? collectReferences(version.body_json)
     : []
   const launchLogs = collectLaunchLogs(version.body_json)
   const front: string[] = []
-  if (options.revisionBlock) {
-    front.push(
-      renderRevisionBlock({ displayVersion, displayStatus, version, versions }),
-    )
-  }
   if (assets.length > 0) front.push(renderAssetList(assets))
   if (launchLogs.length > 0) front.push(renderLinkedLogs(launchLogs, logsById))
   if (refs.length > 0) front.push(renderReferences(refs, refTitleById))
@@ -214,10 +230,12 @@ function renderTitlePage(args: {
   owner: User | null
   effective: string
   reviewBy: string
-  ppeOnDoc: PpeItem[]
+  ppeOnDoc: string[]
+  typeLabel: string
   displayVersion: number
   displayStatus: DisplayStatus
   cover?: PrintCoverSettings | null
+  revisionRows: RevisionRow[]
 }): string {
   const {
     doc,
@@ -225,13 +243,20 @@ function renderTitlePage(args: {
     effective,
     reviewBy,
     ppeOnDoc,
+    typeLabel,
     displayVersion,
     displayStatus,
     cover,
+    revisionRows,
   } = args
   const ownerLabel = owner ? `${escapeHtml(owner.name)} (${escapeHtml(owner.role)})` : "—"
   const ppe = ppeOnDoc
-    .map((p) => `<span>${escapeHtml(PPE_META[p]?.label ?? p)}</span>`)
+    .map((slug) => {
+      const meta = CURRENT_PPE_MAP?.get(slug)
+      const label = meta?.label ?? slug
+      const pid = meta?.pictogramId ?? "general_mandatory"
+      return `<span class="ppe-chip"><img src="${escapeAttr(ppeDataUrl(pid))}" alt="" width="16" height="16" />${escapeHtml(label)}</span>`
+    })
     .join("")
   const eyebrowCompany = cover?.companyName?.trim() || "Oppr DOCS"
   const logo = cover?.logoDataUrl
@@ -240,11 +265,29 @@ function renderTitlePage(args: {
   const confidentiality = cover?.confidentialityLabel?.trim()
     ? `<div class="stamp confidential">${escapeHtml(cover.confidentialityLabel.trim())}</div>`
     : ""
+  // Revision history sits on the title page now (no pill). Cap at three rows so
+  // the cover stays one page.
+  const revRows = revisionRows.slice(0, 3)
+  const revision =
+    revRows.length > 0
+      ? `<div class="title-revision">
+    <div class="title-revision-label">Revision history</div>
+    <table class="title-revision-table">
+      <thead><tr><th>Rev</th><th>Date</th><th>Status</th><th>Summary</th></tr></thead>
+      <tbody>${revRows
+        .map(
+          (r) =>
+            `<tr><td>v${r.version}</td><td>${escapeHtml(r.date)}</td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.summary)}</td></tr>`,
+        )
+        .join("")}</tbody>
+    </table>
+  </div>`
+      : ""
   return `
 <section class="doc-page title-page">
   ${logo}
   <div class="title-eyebrow">${escapeHtml(eyebrowCompany)} · Controlled document</div>
-  <div class="title-kicker">${escapeHtml(TYPE_LABEL[doc.type])}</div>
+  <div class="title-kicker">${escapeHtml(typeLabel)}</div>
   <div class="title-main">
     <h1>${escapeHtml(doc.title)}</h1>
     <div class="title-code-badge">${escapeHtml(doc.naming_code)}</div>
@@ -255,10 +298,11 @@ function renderTitlePage(args: {
     <div><div class="k">Effective</div><div class="v">${escapeHtml(effective)}</div></div>
     <div><div class="k">Review by</div><div class="v">${escapeHtml(reviewBy)}</div></div>
     <div><div class="k">Revision</div><div class="v">${displayVersion}</div></div>
-    <div><div class="k">Type</div><div class="v">${escapeHtml(TYPE_LABEL[doc.type])}</div></div>
+    <div><div class="k">Type</div><div class="v">${escapeHtml(typeLabel)}</div></div>
     <div><div class="k">Status</div><div class="v">${escapeHtml(displayStatus)}</div></div>
   </div>
   ${ppe ? `<div class="title-ppe"><div class="title-ppe-label">Required PPE</div><div class="title-ppe-items">${ppe}</div></div>` : ""}
+  ${revision}
   <div class="title-controlled">
     ${confidentiality}
     <div class="stamp">Controlled copy</div>
@@ -271,45 +315,41 @@ function renderTitlePage(args: {
 // Revision block
 // ---------------------------------------------------------------------------
 
-function renderRevisionBlock(args: {
+interface RevisionRow {
+  version: number
+  date: string
+  status: string
+  summary: string
+}
+
+// Revision rows for the title page. Only published revisions up to the live one
+// appear (an in-progress draft is excluded), newest first, three most recent.
+function buildRevisionRows(args: {
   displayVersion: number
   displayStatus: DisplayStatus
   version: DocVersion
   versions?: RevisionEntry[]
-}): string {
+}): RevisionRow[] {
   const { displayVersion, displayStatus, version, versions } = args
-  // Auto-generated from the publish history. Only published revisions up to the
-  // live one appear (an in-progress draft is excluded), newest first, and we
-  // show just the three most recent so the front page stays compact.
   const all =
     versions && versions.length > 0
       ? versions.map((r) => ({ version: r.version, publishedAt: r.publishedAt }))
       : [{ version: displayVersion, publishedAt: Date.parse(version.published_at) }]
-  const rows = all
+  return all
     .filter((r) => r.version <= displayVersion)
     .sort((a, b) => b.version - a.version)
     .slice(0, 3)
-  const body = rows
     .map((r) => {
       const isCurrent = r.version === displayVersion
-      return `<tr>
-        <td>v${r.version}</td>
-        <td>${escapeHtml(formatDate(new Date(r.publishedAt).toISOString()))}</td>
-        <td>${escapeHtml(isCurrent ? displayStatus : "superseded")}</td>
-        <td>${isCurrent ? "Current version. Review at least annually." : "Superseded revision."}</td>
-      </tr>`
+      return {
+        version: r.version,
+        date: formatDate(new Date(r.publishedAt).toISOString()),
+        status: isCurrent ? displayStatus : "superseded",
+        summary: isCurrent
+          ? "Current version. Review at least annually."
+          : "Superseded revision.",
+      }
     })
-    .join("")
-  return `
-<section class="fm-block fm-slate revision-block">
-  <div class="fm-head">Revision history</div>
-  <table>
-    <thead>
-      <tr><th>Rev</th><th>Date</th><th>Status</th><th>Summary</th></tr>
-    </thead>
-    <tbody>${body}</tbody>
-  </table>
-</section>`
 }
 
 // ---------------------------------------------------------------------------
@@ -355,17 +395,17 @@ function renderReferences(
   titleById?: Record<string, string>,
 ): string {
   return `
-<section class="fm-block fm-indigo reference-block">
-  <div class="fm-head">References &amp; related documents</div>
+<section class="fm-block reference-block">
+  <div class="fm-h">References &amp; related documents</div>
   <table>
     <thead>
-      <tr><th>Code</th><th>Title</th></tr>
+      <tr><th>Reference</th><th>Title</th></tr>
     </thead>
     <tbody>
       ${refs
         .map((r) => {
           const title = titleById?.[r.docId] ?? deriveTitle(r.label, r.code)
-          return `<tr><td>${r.code ? `<span class="code-pill">${escapeHtml(r.code)}</span>` : "—"}</td><td>${escapeHtml(title)}</td></tr>`
+          return `<tr><td class="fm-code">${r.code ? escapeHtml(r.code) : "—"}</td><td>${escapeHtml(title)}</td></tr>`
         })
         .join("")}
     </tbody>
@@ -388,17 +428,17 @@ function deriveTitle(label: string, code: string): string {
 
 function renderAssetList(assets: Asset[]): string {
   return `
-<section class="fm-block fm-emerald asset-list-block">
-  <div class="fm-head">Linked machines</div>
+<section class="fm-block asset-list-block">
+  <div class="fm-h">Linked machines</div>
   <table>
     <thead>
-      <tr><th>Code</th><th>Machine</th></tr>
+      <tr><th>Linked machine</th><th>Name</th></tr>
     </thead>
     <tbody>
       ${assets
         .map(
           (a) =>
-            `<tr><td><span class="code-pill">${escapeHtml(a.code)}</span></td><td>${escapeHtml(a.name)}${a.location ? ` <span style="color:#9ca3af">(${escapeHtml(a.location)})</span>` : ""}</td></tr>`,
+            `<tr><td class="fm-code">${escapeHtml(a.code)}</td><td>${escapeHtml(a.name)}${a.location ? ` <span style="color:#9ca3af">(${escapeHtml(a.location)})</span>` : ""}</td></tr>`,
         )
         .join("")}
     </tbody>
@@ -447,11 +487,11 @@ function renderLinkedLogs(
   logsById?: Record<string, LinkedLogInfo>,
 ): string {
   return `
-<section class="fm-block fm-sky log-list-block">
-  <div class="fm-head">Linked logs</div>
+<section class="fm-block log-list-block">
+  <div class="fm-h">Linked logs</div>
   <table>
     <thead>
-      <tr><th>Code</th><th>Log</th></tr>
+      <tr><th>Linked log</th><th>Name</th></tr>
     </thead>
     <tbody>
       ${entries
@@ -459,7 +499,7 @@ function renderLinkedLogs(
           const info = e.logId ? logsById?.[e.logId] : undefined
           const code = info?.code ?? null
           const name = info?.name || e.label || "—"
-          return `<tr><td>${code ? `<span class="code-pill">${escapeHtml(code)}</span>` : "—"}</td><td>${escapeHtml(name)}</td></tr>`
+          return `<tr><td class="fm-code">${code ? escapeHtml(code) : "—"}</td><td>${escapeHtml(name)}</td></tr>`
         })
         .join("")}
     </tbody>
@@ -483,6 +523,9 @@ interface TipTapNode {
 // because the renderNode recursion threads through too many cases to plumb
 // the map as an argument. Set at the start of renderTipTapDoc.
 let CURRENT_IMAGE_URL_MAP: Record<string, string | null> | undefined
+// PPE catalog (slug → label + pictogram) for the body PPE block. Set in
+// buildPrintDoc; the title-page band resolves through the same map.
+let CURRENT_PPE_MAP: Map<string, PpeCatalogEntry> | undefined
 // Rasterised PDF pages (data URLs) keyed by storageId, for pdfAttachment nodes.
 let CURRENT_PDF_PAGES: Record<string, string[]> | undefined
 // Diagram background images: original URL → fetched data URL. Backgrounds are
@@ -652,12 +695,17 @@ function renderPpe(node: TipTapNode): string {
   const items = raw
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean) as PpeItem[]
+    .filter(Boolean)
   if (items.length === 0) return ""
   return `<div data-ppe-block>
   <div class="label">Required PPE</div>
   <div class="items">${items
-    .map((p) => `<span>${escapeHtml(PPE_META[p]?.label ?? p)}</span>`)
+    .map((slug) => {
+      const meta = CURRENT_PPE_MAP?.get(slug)
+      const label = meta?.label ?? slug
+      const pid = meta?.pictogramId ?? "general_mandatory"
+      return `<span class="ppe-chip"><img src="${escapeAttr(ppeDataUrl(pid))}" alt="" width="16" height="16" />${escapeHtml(label)}</span>`
+    })
     .join("")}</div>
 </div>`
 }

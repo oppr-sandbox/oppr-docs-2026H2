@@ -37,12 +37,8 @@ const stageValidator = v.union(
   v.literal("failed"),
 )
 
-const docTypeValidator = v.union(
-  v.literal("sop"),
-  v.literal("manual"),
-  v.literal("work_instruction"),
-  v.literal("lmra"),
-)
+// Type slug references the editable namingTypes vocabulary.
+const docTypeValidator = v.string()
 
 export const create = mutation({
   args: {

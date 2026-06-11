@@ -57,12 +57,10 @@ export default defineSchema({
     location: v.optional(v.union(v.string(), v.null())),
     discipline: v.optional(v.union(v.string(), v.null())),
     title: v.string(),
-    type: v.union(
-      v.literal("sop"),
-      v.literal("manual"),
-      v.literal("work_instruction"),
-      v.literal("lmra"),
-    ),
+    // Type slug. Was a fixed 4-literal union; now references the editable
+    // namingTypes vocabulary, so stored as a string. Existing slugs
+    // (sop/manual/work_instruction/lmra) stay valid.
+    type: v.string(),
     status: v.union(
       v.literal("pre_draft"),
       v.literal("draft"),
@@ -120,12 +118,8 @@ export default defineSchema({
   // managed via the /templates page.
   templates: defineTable({
     name: v.string(),
-    type: v.union(
-      v.literal("sop"),
-      v.literal("manual"),
-      v.literal("work_instruction"),
-      v.literal("lmra"),
-    ),
+    // Type slug — see documents.type. References namingTypes.
+    type: v.string(),
     description: v.union(v.string(), v.null()),
     bodyJson: v.any(),
     updatedAt: v.number(),
@@ -153,6 +147,22 @@ export default defineSchema({
     updatedAt: v.number(),
   }),
 
+  // ---- PPE catalog ----------------------------------------------------------
+  // Configurable required-PPE items shown in the editor's PPE block and on the
+  // Safety tab. `pictogramId` resolves to a bundled ISO-7010-style SVG
+  // (src/lib/ppePictograms.ts). Built-in items can be deactivated, never
+  // deleted; custom items are deletable. The slug is what the ppe TipTap node
+  // stores, so the eight original ids are kept as factory slugs.
+  ppeItems: defineTable({
+    slug: v.string(),
+    label: v.string(),
+    description: v.union(v.string(), v.null()),
+    pictogramId: v.string(),
+    active: v.boolean(),
+    builtIn: v.boolean(),
+    sortOrder: v.number(),
+  }).index("by_slug", ["slug"]),
+
   // ---- Naming vocabulary + counters ----------------------------------------
   namingLocations: defineTable({
     code: v.string(),
@@ -163,6 +173,24 @@ export default defineSchema({
     code: v.string(),
     label: v.string(),
   }).index("by_code", ["code"]),
+
+  // Document types — the third naming vocabulary. `slug` is the stored
+  // documents.type value (sop/manual/…); `token` is the naming-code segment
+  // (SOP/MAN/…). `icon`/`color` drive the type badge. Built-in rows can be
+  // deactivated (never deleted — naming codes are immutable, so a deleted type
+  // would orphan codes); custom rows are deletable only while unused.
+  namingTypes: defineTable({
+    slug: v.string(),
+    token: v.string(),
+    label: v.string(),
+    icon: v.string(),
+    color: v.string(),
+    active: v.boolean(),
+    builtIn: v.boolean(),
+    sortOrder: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_token", ["token"]),
 
   // One row per (location, discipline, type) triplet. `value` is the last
   // allocated sequence number; the next code uses value + 1. Patched

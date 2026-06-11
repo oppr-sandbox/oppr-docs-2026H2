@@ -55,13 +55,15 @@ function StatusCard() {
   return (
     <Card className="border-amber-500/40 bg-amber-500/5">
       <CardContent className="flex flex-wrap items-center gap-3 p-4 text-sm">
-        <Badge className="border-0 bg-amber-500/20 text-amber-800 dark:text-amber-200">
-          Awaiting go
+        <Badge className="border-0 bg-emerald-500/20 text-emerald-800 dark:text-emerald-200">
+          Shipped · 2026-06-11
         </Badge>
         <span>
-          Plan only. All four workstreams are researched against the current
-          code (file-level touchpoints below). Implementation starts when
-          Floris signs off the open decisions at the bottom.
+          All four workstreams shipped with every recommended decision adopted.
+          Senior-status counting, the DB-backed type vocabulary with icon/color
+          pickers, the de-pilled PDF overview with revision history on the title
+          page, and the Safety-tab PPE configurator with 20 self-drawn
+          pictograms are live. The plan below is kept as the record.
         </span>
       </CardContent>
     </Card>
