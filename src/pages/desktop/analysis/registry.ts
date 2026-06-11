@@ -26,6 +26,7 @@ import { DocumentVersioningAnalysis } from "./DocumentVersioningAnalysis"
 import { AuthoringHardeningBatchAnalysis } from "./AuthoringHardeningBatchAnalysis"
 import { AskIdaScopingAnalysis } from "./AskIdaScopingAnalysis"
 import { FunctionalityGuideAnalysis } from "./FunctionalityGuideAnalysis"
+import { StatusTypesPpePlanAnalysis } from "./StatusTypesPpePlanAnalysis"
 
 export type AnalysisStatus = "done" | "in_progress" | "outstanding"
 
@@ -48,6 +49,17 @@ export interface AnalysisMeta {
 }
 
 export const ANALYSES: AnalysisMeta[] = [
+  {
+    slug: "status-types-ppe-plan",
+    title:
+      "Plan — senior status counts, type vocabulary, PDF overview, PPE configurator",
+    area: "Strategy",
+    status: "outstanding",
+    updatedAt: "2026-06-11",
+    summary:
+      "Implementation plan (awaiting go) for four workstreams from the 2026-06-11 screenshot review. WS1: dashboard counts read doc.status only, so a published doc with a draft fork counts as draft — counts switch to the most senior status (liveVersion ⇒ published) via one shared effectiveStatus helper, also applied to the library filter and Recently-published. WS2: the fixed four-type union becomes a DB-backed namingTypes vocabulary — third card on Naming acronyms with an icon picker (10 lucide icons) and color picker (10 tones); factory set of 6 (SOP, Manual, WI, LMRA + Toolbox TBOX, Policy POL) deactivatable but not deletable, custom types addable; every touchpoint inventoried (schema unions, TYPE_TOKEN maps, TypeBadge, pickers, importer instructions). WS3: PDF Document-overview rework — revision history loses its pill and moves onto the title page; linked machines/logs/references tables drop the code-pills, headers become Linked machine/Name, Linked log/Name, Reference/Title. WS4: PPE configurator on a new Safety tab of /templates — 20-item factory catalog of self-drawn ISO-7010-style blue mandatory pictograms (shop images can't be licensed; we draw our own), ppeItems table with active toggles (factory rows locked), editor picker driven by the active set, and PPE rendering everywhere as pictogram + text including inlined SVGs in the PDF. Five build phases; six pre-recommended decisions to confirm at go.",
+    Component: StatusTypesPpePlanAnalysis,
+  },
   {
     slug: "functionality-guide",
     title: "How Oppr DOCS works — the colleague's guide",
